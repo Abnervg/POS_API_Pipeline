@@ -1,0 +1,15 @@
+# Local sample data
+data/raw/
+data/curated/
+
+#Logs and caches
+logs/
+*.log
+pip-log.txt
+
+# VSCode
+.vscode/
+
+#Environments and credentials
+config/config.env
+credentials.csv
