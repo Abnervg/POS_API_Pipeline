@@ -6,6 +6,7 @@ data/curated/
 logs/
 *.log
 pip-log.txt
+__pycache__/
 
 # VSCode
 .vscode/
