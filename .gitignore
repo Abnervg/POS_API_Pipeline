@@ -13,3 +13,6 @@ pip-log.txt
 #Environments and credentials
 config/config.env
 credentials.csv
+
+#Testing
+notebooks/
