@@ -60,9 +60,11 @@ def main():
     flat_table = time_slots(flat_table)
     #Test the transformation
     logger.info("Data cleansing complete. Data is now ready for analysis.")
-    sold_by_time = flat_table.groupby("order_type")["receipt_number"].nunique()
-    sold_by_time.plot(kind="bar")
-    plt.show()
+
+    # LOAD
+    logger.info("Loading data into the curated folder...")
+    from etl.load import load_to_curated_folder
+    load_to_curated_folder(flat_table)
 
 if __name__ == "__main__":
     main()
