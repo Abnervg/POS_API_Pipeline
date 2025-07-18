@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 # Import custom ETL functions
 from etl.extract import get_monthly_time_range, fetch_api_data, save_raw_data
 from etl.transform import load_raw_data, flattening_table_mine, homogenize_order_types, time_slots
-from etl.load import load_to_curated_folder
+from etl.load import load_to_curated_folder,load_to_aws_bucket
 
 def run_extract(base_url, api_key, project_dir):
     """Runs the entire data extraction process."""
@@ -38,12 +38,18 @@ def run_transform(raw_data_dir, file_tag):
     logger.info("--- Finished Transform Step ---")
     return flat_table
 
-def run_load(processed_df, output_dir, file_tag):
+def run_load(processed_df, file_tag):
     """Runs the entire data loading process."""
     logger = logging.getLogger(__name__)
-    logger.info("--- Starting Load Step ---")
-    load_to_curated_folder(processed_df, output_dir, file_tag)
-    logger.info("--- Finished Load Step ---")
+    curated_folder = Path(__file__).parent / "data" / "curated"
+    curated_folder.mkdir(parents=True, exist_ok=True)   
+    logger.info("--- Starting Load Step to curated folder---")
+    load_to_curated_folder(processed_df, file_tag)
+    logger.info("--- Finished Load Step to curated folder ---")
+    logger.info("--- Starting Load Step to AWS S3 bucket ---")
+    bucket_name = os.getenv("S3_BUCKET_NAME")
+    load_to_aws_bucket(processed_df, bucket_name, file_tag)
+    logger.info("--- Finished Load Step to AWS S3 bucket ---")
 
 def main():
     # --- CONFIGURE LOGGING ---
@@ -81,11 +87,8 @@ def main():
     # --- RUN STEPS BASED ON ARGUMENT ---
     if args.step == 'all':
         raw_dir, file_tag = run_extract(base_url, api_key, project_dir)
-        curated_dir = project_dir / "data" / "curated"
-        if not curated_dir.exists():    
-            curated_dir.mkdir(parents=True, exist_ok=True)
         transformed_df = run_transform(raw_dir, file_tag)
-        run_load(transformed_df, curated_dir, file_tag)
+        run_load(transformed_df,file_tag)
     elif args.step == 'extract':
         run_extract(base_url, api_key, project_dir)
     elif args.step == 'transform':
@@ -97,11 +100,13 @@ def main():
         # Load requires data from the transform step first
         file_tag = get_monthly_time_range()[0][:7]
         raw_dir = project_dir / "data" / "raw"
+        s3_bucket_name = os.getenv("S3_BUCKET_NAME")
         transformed_df = run_transform(raw_dir, file_tag)
         curated_dir = project_dir / "data" / "curated"
         if not curated_dir.exists():    
             curated_dir.mkdir(parents=True, exist_ok=True)
         run_load(transformed_df, curated_dir, file_tag)
+        load_to_aws_bucket(transformed_df, s3_bucket_name, file_tag)
 
 if __name__ == "__main__":
     main()
