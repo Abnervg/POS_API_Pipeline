@@ -4,7 +4,7 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
-# Import your custom functions
+# Import custom ETL functions
 from etl.extract import get_monthly_time_range, fetch_api_data, save_raw_data
 from etl.transform import load_raw_data, flattening_table_mine, homogenize_order_types, time_slots
 from etl.load import load_to_curated_folder
@@ -38,13 +38,11 @@ def run_transform(raw_data_dir, file_tag):
     logger.info("--- Finished Transform Step ---")
     return flat_table
 
-def run_load(processed_df):
+def run_load(processed_df, output_dir, file_tag):
     """Runs the entire data loading process."""
     logger = logging.getLogger(__name__)
     logger.info("--- Starting Load Step ---")
-    
-    load_to_curated_folder(processed_df)
-    
+    load_to_curated_folder(processed_df, output_dir, file_tag)
     logger.info("--- Finished Load Step ---")
 
 def main():
@@ -83,8 +81,11 @@ def main():
     # --- RUN STEPS BASED ON ARGUMENT ---
     if args.step == 'all':
         raw_dir, file_tag = run_extract(base_url, api_key, project_dir)
+        curated_dir = project_dir / "data" / "curated"
+        if not curated_dir.exists():    
+            curated_dir.mkdir(parents=True, exist_ok=True)
         transformed_df = run_transform(raw_dir, file_tag)
-        run_load(transformed_df)
+        run_load(transformed_df, curated_dir, file_tag)
     elif args.step == 'extract':
         run_extract(base_url, api_key, project_dir)
     elif args.step == 'transform':
@@ -97,7 +98,10 @@ def main():
         file_tag = get_monthly_time_range()[0][:7]
         raw_dir = project_dir / "data" / "raw"
         transformed_df = run_transform(raw_dir, file_tag)
-        run_load(transformed_df)
+        curated_dir = project_dir / "data" / "curated"
+        if not curated_dir.exists():    
+            curated_dir.mkdir(parents=True, exist_ok=True)
+        run_load(transformed_df, curated_dir, file_tag)
 
 if __name__ == "__main__":
     main()
