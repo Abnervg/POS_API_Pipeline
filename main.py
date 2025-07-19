@@ -2,6 +2,7 @@ import logging
 import argparse
 from pathlib import Path
 import os
+from venv import logger
 from dotenv import load_dotenv
 
 # Import custom ETL functions
@@ -100,12 +101,19 @@ def main():
         # Load requires data from the transform step first
         file_tag = get_monthly_time_range()[0][:7]
         raw_dir = project_dir / "data" / "raw"
-        s3_bucket_name = os.getenv("S3_BUCKET_NAME")
+        try:
+            s3_bucket_name = os.getenv("S3_BUCKET_NAME")
+            if not s3_bucket_name:
+                raise ValueError("S3_BUCKET_NAME must be set in the environment.")
+        except Exception as e:
+            logger.error(f"Error retrieving S3 bucket name: {e}")
+            return
+
         transformed_df = run_transform(raw_dir, file_tag)
         curated_dir = project_dir / "data" / "curated"
         if not curated_dir.exists():    
             curated_dir.mkdir(parents=True, exist_ok=True)
-        run_load(transformed_df, curated_dir, file_tag)
+        run_load(transformed_df, file_tag)
         load_to_aws_bucket(transformed_df, s3_bucket_name, file_tag)
 
 if __name__ == "__main__":
