@@ -9,16 +9,30 @@ from zoneinfo import ZoneInfo
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def get_monthly_time_range(tz_name="America/Mexico_City"):
-    """Calculates the start and end of the current month in UTC ISO format."""
+    """
+    Calculates a monthly time range in UTC ISO format.
+    - If run on the 1st of the month (for cron), it returns the PREVIOUS month.
+    - If run any other day (for manual runs), it returns the CURRENT month.
+    """
+    logger = logging.getLogger(__name__)
     local_tz = ZoneInfo(tz_name)
     now = datetime.now(local_tz)
+
+    # --- CONDITIONAL LOGIC ---
+    if now.day == 1:
+        logger.info("First day of the month detected. Targeting previous month for automated run.")
+        target_date = now - pd.DateOffset(months=1)
+    else:
+        logger.info("Manual run detected. Targeting current month.")
+        target_date = now
     
-    start_of_month = pd.Timestamp(now).to_period('M').to_timestamp().tz_localize(local_tz)
-    end_of_month = start_of_month + pd.offsets.MonthEnd(1)
+    # The rest of the calculation uses the determined target_date
+    start_of_target_month = pd.Timestamp(target_date).to_period('M').to_timestamp().tz_localize(local_tz)
+    end_of_target_month = start_of_target_month + pd.offsets.MonthEnd(1)
     
     # Convert to UTC and format for the API
-    utc_start = start_of_month.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace('+00:00', 'Z')
-    utc_end = end_of_month.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace('+00:00', 'Z')
+    utc_start = start_of_target_month.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace('+00:00', 'Z')
+    utc_end = end_of_target_month.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace('+00:00', 'Z')
     
     return utc_start, utc_end
 
