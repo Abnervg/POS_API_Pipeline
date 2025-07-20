@@ -1,0 +1,33 @@
+name: Monthly ETL Pipeline
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Runs at 05:00 UTC on the 1st day of every month
+    # This is equivalent to 23:00  UTC-6 on the last day of the month.
+    - cron: '0 5 1 * *'
+
+jobs:
+  run-etl-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ETL Script
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+          BASE_URL: ${{ secrets.BASE_URL }}
+          POS_API_KEY: ${{ secrets.POS_API_KEY }}
+        run: python main.py --step all
