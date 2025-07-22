@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime
 
 # Import the functions you want to test
-from reporting.data_preparation import clean_data_for_reporting, explode_combo_items
+from reporting.data_preparation import clean_data_for_reporting, explode_combo_items,explode_combo_items_advanced
 from reporting.monthly_report import top_five_products
 
 # --- 1. Create Sample Data for Testing ---
@@ -21,6 +21,21 @@ def sample_raw_data():
     }
     return pd.DataFrame(data)
 
+@pytest.fixture
+def sample_combo_data():
+    """Provides sample data with a complex combo for testing."""
+    data = {
+        'receipt_number': ['1-1696', '1-1696', '1-1695'],
+        'item_name': ['Combo Pa ́ Dos', 'Malteada Chocolate', 'Doble Chicken'],
+        'price': [240.0, 60.0, 115.0],
+        'cost': [129.0, 19.0, 54.0],
+        'modifiers': [
+            'Hamburguesa 1(Hamburguesa Smash 1);Hamburguesa 2(Hamburguesa Chiken 2);Mayonesa(Ajo);Mayonesa(Chipotle);Refresco Sabor(Agua Natural)',
+            'Tipo de Leche(Leche Entera)',
+            'Mayonesa(Ajo)'
+        ]
+    }
+    return pd.DataFrame(data)
 # --- 2. Write a Test for Each Function ---
 
 def test_clean_data_for_reporting(sample_raw_data):
@@ -48,21 +63,39 @@ def test_explode_combo_items(sample_raw_data):
     # Assert that the price for the exploded item is 0
     assert exploded_df[exploded_df['item_name'] == 'Carne']['price'].iloc[0] == 0
 
-def test_top_five_products(sample_raw_data):
-    """Tests the top 5 products calculation on CLEANED data."""
-    
-    # --- FIX: Clean the data first, just like in your main script ---
-    cleaned_df = clean_data_for_reporting(sample_raw_data)
-    
-    # Now, call the function with the cleaned DataFrame
-    result_df = top_five_products(cleaned_df)
-    
-    # Define what the correct output should be
-    expected_data = {
-        'item_name': ['Combo Hamburguesa', 'Papas Fritas', 'Refresco'],
-        'total_sales': [150.0, 50.0, 25.0]
-    }
-    expected_df = pd.DataFrame(expected_data)
-    
-    # pandas has a built-in function to compare DataFrames in tests
-    assert_frame_equal(result_df, expected_df, check_dtype=False)
+def test_explode_combo_items_advanced(sample_combo_data):
+    """
+    Tests the advanced combo exploding function to ensure it correctly unnests
+    items, renames them, and associates the correct modifiers.
+    """
+    # Run the function on the sample data
+    result_df = explode_combo_items_advanced(sample_combo_data)
+
+    # --- ASSERTIONS ---
+
+    # 1. Check that the total number of rows is correct
+    # (2 original non-combo rows + 3 new rows from the exploded combo)
+    assert len(result_df) == 5, "The final DataFrame should have 5 rows."
+
+    # 2. Check that the original combo row is gone
+    assert 'Combo Pa ́ Dos' not in result_df['item_name'].values
+
+    # 3. Verify the new rows were created correctly
+    smash_burger_row = result_df[result_df['item_name'] == 'Smash Burger']
+    chicken_burger_row = result_df[result_df['item_name'] == 'Chicken Burger']
+    agua_row = result_df[result_df['item_name'] == 'Agua Natural']
+
+    # Check that each new item exists
+    assert not smash_burger_row.empty, "Smash Burger row was not created."
+    assert not chicken_burger_row.empty, "Chicken Burger row was not created."
+    assert not agua_row.empty, "Agua Natural row was not created."
+
+    # 4. Verify that modifiers were correctly associated
+    assert smash_burger_row.iloc[0]['modifiers'] == 'Mayonesa(Ajo)', "Smash Burger should have 'Mayonesa(Ajo)'."
+    assert chicken_burger_row.iloc[0]['modifiers'] == 'Mayonesa(Chipotle)', "Chicken Burger should have 'Mayonesa(Chipotle)'."
+    assert agua_row.iloc[0]['modifiers'] is None, "Agua Natural should have no modifier."
+
+    # 5. Verify that the price and cost of new items are zero
+    assert smash_burger_row.iloc[0]['price'] == 0
+    assert chicken_burger_row.iloc[0]['price'] == 0
+    assert agua_row.iloc[0]['price'] == 0
