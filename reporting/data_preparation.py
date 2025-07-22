@@ -1,7 +1,8 @@
 import logging
 import pandas as pd
+import re
 
-def cleaning_data_for_reporting(df):
+def clean_data_for_reporting(df):
     """
     Cleans the DataFrame for reporting purposes.
     
@@ -29,9 +30,9 @@ def cleaning_data_for_reporting(df):
     df.dropna(subset=['datetime', 'receipt_number'], inplace=True)
     
     # Fill missing numeric values with 0 and text with 'Unknown'
-    df['price'].fillna(0, inplace=True)
-    df['cost'].fillna(0, inplace=True)
-    df['item_name'].fillna('Unknown', inplace=True)
+    df['price'] = df['price'].fillna(0)
+    df['cost'] = df['cost'].fillna(0)
+    df['item_name'] = df['item_name'].fillna('Unknown')
 
     # 3. Feature Engineering: Create new columns for analysis
     df['day_of_week'] = df['datetime'].dt.day_name()
@@ -52,7 +53,7 @@ def explode_combo_items(df):
 
     # Isolate combo rows from regular items
     is_combo = df['item_name'].str.contains('Combo', case=False, na=False)
-    combo_df = df[is_combo]
+    combo_df = df[is_combo].copy()
     non_combo_df = df[~is_combo]
 
     if combo_df.empty:
