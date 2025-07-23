@@ -6,7 +6,7 @@ import numpy as np
 import seaborn as sns
 
 # Import your data preparation functions
-from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced, calculate_mayo_percentages_and_counts
+from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced, calculate_mayo_percentages_and_counts, calculate_beverage_distribution
 
 # --- Data Calculation Functions ---
 
@@ -39,6 +39,57 @@ def create_top_products_plot(df, output_dir):
     plt.close() # Close the plot to free up memory
     logger.info(f"Top products plot saved to: {plot_path}")
 
+def plot_beverage_distribution(df, output_dir):
+    """
+    Creates a stacked bar chart showing the distribution of beverages,
+    with counts on the Y-axis and percentage labels inside the bars.
+    """
+    logger = logging.getLogger(__name__)
+
+    # 1. Get the prepared data with counts and percentages
+    data_for_plot = calculate_beverage_distribution(df)
+
+    # 2. Pivot the data for both counts (for bar heights) and percentages (for labels)
+    counts_pivot = data_for_plot.pivot(index='category', columns='item_name', values='count').fillna(0)
+    percentages_pivot = data_for_plot.pivot(index='category', columns='item_name', values='percentage').fillna(0)
+
+    # 3. Create the stacked bar plot using the raw counts
+    ax = counts_pivot.plot(kind='bar', stacked=True, figsize=(10, 8), width=0.6, colormap='viridis')
+
+    # 4. Add the percentage labels to each segment
+    for container in ax.containers:
+        # Create labels from the corresponding percentage data
+        labels = []
+        for i, v in enumerate(container):
+            category_name = counts_pivot.index[i]
+            item_name = container.get_label()
+            try:
+                percentage = percentages_pivot.loc[category_name, item_name]
+                if percentage > 5: # Only show label if segment is large enough
+                    labels.append(f'{percentage:.0f}%')
+                else:
+                    labels.append('')
+            except KeyError:
+                labels.append('')
+        ax.bar_label(container, labels=labels, label_type='center', color='white', weight='bold')
+
+    # 5. Add titles and labels
+    plt.title('Beverage Sales Distribution', fontsize=16)
+    plt.xlabel('Beverage Category', fontsize=12)
+    plt.ylabel('Number of Items Sold', fontsize=12)
+    plt.xticks(rotation=0)
+    plt.legend(title='Beverage Type', bbox_to_anchor=(1.02, 1), loc='upper left')
+    plt.tight_layout(rect=[0, 0, 0.85, 1])
+
+    # 6. Save the plot
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "beverage_distribution.png"
+    plt.savefig(plot_path)
+    plt.close() # Close the plot to free up memory
+    
+    logger.info(f"Beverage distribution plot saved to: {plot_path}")
+ 
+
 def plot_stacked_counts_with_percentage_labels(df, output_dir):
     """Creates a stacked bar chart of Mayonesa modifiers."""
     logger = logging.getLogger(__name__)
@@ -65,7 +116,7 @@ def plot_stacked_counts_with_percentage_labels(df, output_dir):
                 labels.append('')
         ax.bar_label(container, labels=labels, label_type='center', color='white', weight='bold')
 
-    plt.title('Mayonnaise Preference per Burger Type (by Volume)', fontsize=16)
+    plt.title('Mayonnaise Preference per Burger Type', fontsize=16)
     plt.ylabel('Number of Burgers Sold', fontsize=12)
     plt.xlabel('Burger Type', fontsize=12)
     plt.xticks(rotation=0)
@@ -94,8 +145,9 @@ def generate_monthly_report(df, config, file_tag):
     report_output_dir = config['project_dir'] / "reports" / f"monthly_report_{file_tag}"
     
     # 3. Generate all plots
-    create_top_products_plot(final_df, report_output_dir)
+
     plot_stacked_counts_with_percentage_labels(final_df, report_output_dir)
+    plot_beverage_distribution(final_df, report_output_dir)
     
     # (Future step: Call a function to generate the .md summary file here)
     

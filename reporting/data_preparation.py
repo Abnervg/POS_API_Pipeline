@@ -175,8 +175,10 @@ def calculate_beverage_distribution(df):
     def assign_category(item_name):
         if 'malteada' in item_name.lower():
             return 'Malteadas'
+        elif 'agua' in item_name.lower():
+            return 'Aguas'
         else:
-            return 'Refrescos y Aguas'
+            return 'Refrescos'
 
     beverages_df['category'] = beverages_df['item_name'].apply(assign_category)
 
