@@ -12,25 +12,6 @@ from .data_preparation import calculate_beverage_distribution, calculate_mayo_pe
 
 # --- Plotting Functions ---
 
-def create_top_products_plot(df, output_dir):
-    """Generates a bar chart of the top 5 sold products and saves it."""
-    logger = logging.getLogger(__name__)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    top_products_df = get_top_products(df, top_n=5)
-    
-    plt.figure(figsize=(10, 7))
-    sns.barplot(data=top_products_df, x='item_name', y='items_sold', palette='viridis')
-    plt.title('Top 5 Most Sold Items', fontsize=16)
-    plt.xlabel('Product', fontsize=12)
-    plt.ylabel('Number of Items Sold', fontsize=12)
-    plt.xticks(rotation=45, ha='right')
-    plt.tight_layout()
-    
-    plot_path = output_dir / "top_5_products.png"
-    plt.savefig(plot_path)
-    plt.close() # Close the plot to free up memory
-    logger.info(f"Top products plot saved to: {plot_path}")
 
 def plot_beverage_distribution(df, output_dir):
     """
