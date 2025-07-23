@@ -177,3 +177,32 @@ def explode_combo_items_advanced(df):
     
     logger.info(f"Original row count: {len(df)}, New row count after advanced exploding: {len(final_df)}")
     return final_df
+
+def calculate_mayo_percentages_and_counts(df):
+    """
+    Calculates both the raw count and the percentage distribution of
+    Mayonesa modifiers for each burger type.
+    Returns:
+    pd.DataFrame: A DataFrame with columns ['item_name', 'mayo_type', 'count', 'percentage']
+    """
+# Filter for burgers and then for Mayonesa modifiers
+
+    all_burgers = df[df['item_name'].str.contains("Burger|Smash", case=False, na=False)].copy()
+
+    mayo_burgers = all_burgers[all_burgers['modifiers'].str.contains("Mayonesa", case=False, na=False)].copy()
+
+    # Extract the specific mayo type
+
+    mayo_burgers['mayo_type'] = mayo_burgers['modifiers'].str.extract(r'Mayonesa\((.*?)\)')
+
+    # Get the count of each mayo type per burger
+
+    mayo_counts = mayo_burgers.groupby(['item_name', 'mayo_type']).size().reset_index(name='count')
+
+    # Get the total number of mayo burgers for each type to calculate percentages
+
+    total_burgers_per_item = mayo_counts.groupby('item_name')['count'].transform('sum')
+
+    mayo_counts['percentage'] = (mayo_counts['count'] / total_burgers_per_item) * 100
+
+    return mayo_counts
