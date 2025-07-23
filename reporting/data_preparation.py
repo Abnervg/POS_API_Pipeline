@@ -96,6 +96,8 @@ def explode_combo_items_advanced(df):
                 new_item_name = 'Smash Burger'
             elif 'chiken' in raw_item_name.lower(): # Correcting potential typo
                 new_item_name = 'Chicken Burger'
+            elif 'Coca' in raw_item_name:
+                new_item_name = 'Coca Cola'
             else: # For things like 'Agua Natural' from 'Refresco Sabor(Agua Natural)'
                 new_item_name = raw_item_name
 
