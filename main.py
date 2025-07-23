@@ -4,6 +4,7 @@ from pathlib import Path
 import os
 from venv import logger
 from dotenv import load_dotenv
+import pandas as pd
 
 # Import custom ETL functions
 from etl.extract import get_monthly_time_range, fetch_api_data, save_raw_data
@@ -52,6 +53,27 @@ def run_load(processed_df, file_tag):
     load_to_aws_bucket(processed_df, bucket_name, file_tag)
     logger.info("--- Finished Load Step to AWS S3 bucket ---")
 
+def get_monthly_report():
+    """
+    Generates the monthly report by cleaning, exploding combo items, and analyzing the data.
+    Returns the top products DataFrame.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("--- Starting Monthly Report Generation ---")
+    
+    # Load the raw data
+    raw_data_dir = Path(__file__).parent / "data" / "raw"
+    print(f"Raw data directory: {raw_data_dir}")
+    file_tag = get_monthly_time_range()[0][:7]  # Use YYYY-MM as the tag
+    monthly_df = load_raw_data(raw_data_dir, file_tag)
+    
+    # Generate the report
+    from reporting.monthly_report import generate_monthly_report
+    top_products = generate_monthly_report(monthly_df)
+    
+    logger.info("--- Finished Monthly Report Generation ---")
+    return top_products
+
 def main():
     # --- CONFIGURE LOGGING ---
     log_dir = Path(__file__).parent / "logs"
@@ -69,9 +91,9 @@ def main():
     parser = argparse.ArgumentParser(description="Run the ETL pipeline.")
     parser.add_argument(
         '--step', 
-        choices=['extract', 'transform', 'load', 'all'], 
+        choices=['extract', 'transform', 'load', 'report', 'all'], 
         default='all',
-        help='Specify which ETL step to run.'
+        help='Specify which step to run.'
     )
     args = parser.parse_args()
 
@@ -115,6 +137,28 @@ def main():
             curated_dir.mkdir(parents=True, exist_ok=True)
         run_load(transformed_df, file_tag)
         load_to_aws_bucket(transformed_df, s3_bucket_name, file_tag)
+    elif args.step == 'report':
+        logger.info("--- Starting Monthly Report Generation ---")
+        
+        # This step assumes the curated data already exists.
+        # It loads the final output of your transform/load steps.
+        project_dir = Path(__file__).parent
+        print(f"Project directory: {project_dir}")
+        curated_dir = project_dir / "data" / "curated"
+        file_tag = get_monthly_time_range()[0][:7] # Use YYYY-MM as the tag
+        
+        # Load the final, curated data, not the raw data
+        curated_file_path = curated_dir / f"curated_data_{file_tag}.csv"
+        if not curated_file_path.exists():
+            raise FileNotFoundError(f"Curated data file not found for tag {file_tag} in dir {curated_file_path}. Please run the transform/load steps first.")
+
+        final_df = pd.read_csv(curated_file_path)
+        
+        # Now, call your report generation function with the clean data
+        from reporting.monthly_report import generate_monthly_report
+        generate_monthly_report(final_df)
+
+        logger.info("--- Finished Monthly Report Generation ---")
 
 if __name__ == "__main__":
     main()
