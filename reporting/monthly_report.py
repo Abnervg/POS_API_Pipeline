@@ -9,14 +9,6 @@ import seaborn as sns
 from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced
 from .data_preparation import calculate_beverage_distribution, calculate_mayo_percentages_and_counts, calculate_sales_by_day_of_week
 
-# --- Data Calculation Functions ---
-
-def get_top_products(df, top_n=5):
-    """Counts how many times each item appears and returns the top N items."""
-    top_items_series = df['item_name'].value_counts().head(top_n)
-    top_items_df = top_items_series.reset_index()
-    top_items_df.columns = ['item_name', 'items_sold']
-    return top_items_df
 
 # --- Plotting Functions ---
 
