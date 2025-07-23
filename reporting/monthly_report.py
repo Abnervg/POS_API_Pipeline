@@ -8,7 +8,7 @@ import seaborn as sns
 # Import your data preparation functions
 from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced
 from .data_preparation import calculate_beverage_distribution, calculate_mayo_percentages_and_counts, calculate_sales_by_day_of_week
-
+from .data_preparation import calculate_daily_sales_metrics
 
 # --- Plotting Functions ---
 
@@ -176,6 +176,53 @@ def plot_sales_by_day_of_week(df, output_dir):
 
     logger.info(f"Sales by day of week plot saved to: {plot_path}")
 
+def plot_daily_sales_trends(df, output_dir):
+    """
+    Generates a single-axis line plot of daily receipts with sales annotations.
+    """
+    logger = logging.getLogger(__name__)
+
+    # 1. Get the daily metrics
+    daily_data = calculate_daily_sales_metrics(df)
+
+    # 2. Calculate the average ticket value for the whole month
+    total_monthly_sales = daily_data['total_sales'].sum()
+    total_monthly_receipts = daily_data['unique_receipts'].sum()
+    avg_ticket_value = total_monthly_sales / total_monthly_receipts if total_monthly_receipts > 0 else 0
+
+    # 3. Create the plot with a single Y-axis
+    fig, ax = plt.subplots(figsize=(15, 8))
+    
+    # Plot unique receipts on the primary axis
+    sns.lineplot(data=daily_data, x='date', y='unique_receipts', ax=ax, 
+                 color='dodgerblue', marker='o', label='Unique Receipts')
+    ax.set_xlabel('Date', fontsize=12)
+    ax.set_ylabel('Number of Unique Receipts', fontsize=12)
+    
+    # 4. Add the total sales amount as a label on top of each data point
+    for index, row in daily_data.iterrows():
+        ax.text(row['date'], row['unique_receipts'] + 0.5, f"${row['total_sales']:,.0f}", 
+                color='black', ha="center", va="bottom", fontsize=9)
+
+    # 5. Add the average ticket value in the top-left corner
+    avg_ticket_text = f"Avg. Ticket Value: ${avg_ticket_value:,.2f}"
+    ax.text(0.02, 0.95, avg_ticket_text, transform=ax.transAxes, fontsize=12,
+            verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5', fc='wheat', alpha=0.5))
+
+    # 6. Add titles and formatting
+    plt.title('Daily Customer Traffic and Sales', fontsize=16)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    fig.tight_layout()
+    
+    # 7. Save the plot
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "daily_sales_trends.png"
+    plt.savefig(plot_path)
+    plt.close()
+
+    logger.info(f"Daily sales trends plot saved to: {plot_path}")
+
+
 
 # --- Main Orchestrator Function for this Module ---
 
@@ -198,6 +245,7 @@ def generate_monthly_report(df, config, file_tag):
     plot_stacked_counts_with_percentage_labels(final_df, report_output_dir)
     plot_beverage_distribution(final_df, report_output_dir)
     plot_sales_by_day_of_week(final_df, report_output_dir)
+    plot_daily_sales_trends(final_df, report_output_dir)
     
     # (Future step: Call a function to generate the .md summary file here)
     

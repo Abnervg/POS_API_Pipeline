@@ -235,3 +235,25 @@ def calculate_sales_by_day_of_week(df):
     categorized_sales.rename(columns={'receipt_number': 'count'}, inplace=True)
     
     return total_sales_by_day, categorized_sales
+
+def calculate_daily_sales_metrics(df):
+    """
+    Calculates total sales and unique receipts for each day of the month.
+    This function should be used with data BEFORE exploding combo items.
+    """
+    df = df.copy()
+    # Ensure 'shifted_time' is a datetime object
+    df['shifted_time'] = pd.to_datetime(df['shifted_time'], errors='coerce')
+    df.dropna(subset=['shifted_time'], inplace=True)
+    
+    # Group by date and aggregate
+    daily_metrics = df.groupby(df['shifted_time'].dt.date).agg(
+        total_sales=('price', 'sum'),
+        unique_receipts=('receipt_number', 'nunique')
+    ).reset_index()
+    
+    # Rename the date column for clarity
+    daily_metrics.rename(columns={'shifted_time': 'date'}, inplace=True)
+    
+    return daily_metrics
+
