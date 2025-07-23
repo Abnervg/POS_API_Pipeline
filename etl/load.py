@@ -6,13 +6,13 @@ import pandas as pd
 app_path = Path(__file__).parent
 output_dir = app_path.parent / "data" / "curated"
 
-def load_to_curated_folder(flat_table, file_tag, output_dir=output_dir):
+def load_to_curated_folder(flat_table, output_dir, file_tag):
     """
     Load the transformed data into a curated folder.
     
     :param flat_table: The DataFrame containing the transformed data.
-    :param output_dir: The directory where the curated data will be saved.
-    :param file_tag: A tag to identify the file, typically based on the date.
+    :param output_dir: The Path object for the directory where the data will be saved.
+    :param file_tag: A string tag to identify the file (e.g., '2025-06').
     """
     curated_file_path = output_dir / f"curated_data_{file_tag}.csv"
     flat_table.to_csv(curated_file_path, index=False)
