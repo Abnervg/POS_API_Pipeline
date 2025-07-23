@@ -2,6 +2,7 @@ import logging
 import pandas as pd
 import re
 
+# Data preparation functions for reporting
 def clean_data_for_reporting(df):
     """
     Cleans the DataFrame for reporting purposes.
@@ -41,10 +42,13 @@ def clean_data_for_reporting(df):
     logger.info("Data cleaning and feature engineering complete.")
     return df
 
+
+# Explode combo items into individual rows with modifiers
 def explode_combo_items_advanced(df):
     """
     Finds combo items, parses their modifiers, and creates new, clean rows for
     each individual item found within the combo, correctly associating sub-modifiers.
+    *Note*: This function removes the price and cost from individual items, as they belong to the combo.
     """
     logger = logging.getLogger(__name__)
     logger.info("Starting advanced explosion of combo items...")
@@ -122,6 +126,8 @@ def explode_combo_items_advanced(df):
     logger.info(f"Original row count: {len(df)}, New row count after advanced exploding: {len(final_df)}")
     return final_df
 
+#Helper function to plot mayonnaise preferences
+
 def calculate_mayo_percentages_and_counts(df):
     """
     Calculates both the raw count and the percentage distribution of
@@ -150,3 +156,35 @@ def calculate_mayo_percentages_and_counts(df):
     mayo_counts['percentage'] = (mayo_counts['count'] / total_burgers_per_item) * 100
 
     return mayo_counts
+
+#Helper function to plot beverages sold
+
+def calculate_beverage_distribution(df):
+    """
+    Categorizes beverages, then calculates the raw count and percentage
+    distribution within each category.
+
+    Returns:
+        pd.DataFrame: A DataFrame with columns ['category', 'item_name', 'count', 'percentage']
+    """
+    # 1. Filter for all beverage items
+    beverage_keywords = "Refresco|Malteada|Coca|Squirt|Agua|Manzanita"
+    beverages_df = df[df['item_name'].str.contains(beverage_keywords, case=False, na=False)].copy()
+
+    # 2. Create a new 'category' column
+    def assign_category(item_name):
+        if 'malteada' in item_name.lower():
+            return 'Malteadas'
+        else:
+            return 'Refrescos y Aguas'
+
+    beverages_df['category'] = beverages_df['item_name'].apply(assign_category)
+
+    # 3. Get the count of each item within each category
+    beverage_counts = beverages_df.groupby(['category', 'item_name']).size().reset_index(name='count')
+
+    # 4. Calculate the percentage *within each category*
+    total_per_category = beverage_counts.groupby('category')['count'].transform('sum')
+    beverage_counts['percentage'] = (beverage_counts['count'] / total_per_category) * 100
+    
+    return beverage_counts
