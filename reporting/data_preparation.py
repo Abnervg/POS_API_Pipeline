@@ -192,3 +192,46 @@ def calculate_beverage_distribution(df):
     beverage_counts['percentage'] = (beverage_counts['count'] / total_per_category) * 100
     
     return beverage_counts
+
+
+#Calculate sells by day of week
+def calculate_sales_by_day_of_week(df):
+    """
+    Calculates sales traffic by day of the week, both total and by order type.
+    """
+    df = df.copy()
+    # Ensure 'shifted_time' column exists and is the correct type
+    if 'shifted_time' not in df.columns or not pd.api.types.is_datetime64_any_dtype(df['shifted_time']):
+        df['shifted_time'] = pd.to_datetime(df['shifted_time'], errors='coerce')
+        df.dropna(subset=['shifted_time'], inplace=True)
+        
+    df['day_of_week'] = df['shifted_time'].dt.day_name()
+    
+    # --- FIX: Convert 'day_of_week' to an ordered Categorical type ---
+    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    df['day_of_week'] = pd.Categorical(df['day_of_week'], categories=day_order, ordered=True)
+
+    # --- Create Order Type Categories ---
+    def assign_order_category(order_type):
+        if not isinstance(order_type, str):
+            return 'Otro'
+        if 'Mesa' in order_type:
+            return 'Restaurante'
+        if 'domicilio' in order_type.lower():
+            return 'A domicilio'
+        if 'llevar' in order_type.lower():
+            return 'Para llevar'
+        return 'Otro'
+
+    df['order_category'] = df['order_type'].apply(assign_order_category)
+    
+    # --- Calculate total sales by day ---
+    # The groupby will now respect the categorical order, and we use observed=False
+    # to ensure all days of the week are present, even if they have 0 sales.
+    total_sales_by_day = df.groupby('day_of_week', observed=False)['receipt_number'].nunique()
+    
+    # --- Calculate sales by day AND category ---
+    categorized_sales = df.groupby(['day_of_week', 'order_category'], observed=False)['receipt_number'].nunique().reset_index()
+    categorized_sales.rename(columns={'receipt_number': 'count'}, inplace=True)
+    
+    return total_sales_by_day, categorized_sales

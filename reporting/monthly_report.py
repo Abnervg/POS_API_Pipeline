@@ -6,7 +6,8 @@ import numpy as np
 import seaborn as sns
 
 # Import your data preparation functions
-from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced, calculate_mayo_percentages_and_counts, calculate_beverage_distribution
+from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced
+from .data_preparation import calculate_beverage_distribution, calculate_mayo_percentages_and_counts, calculate_sales_by_day_of_week
 
 # --- Data Calculation Functions ---
 
@@ -164,6 +165,45 @@ def plot_stacked_counts_with_percentage_labels(df, output_dir):
     plt.close() # Close the plot
     logger.info(f"Stacked count plot saved to: {plot_path}")
 
+def plot_sales_by_day_of_week(df, output_dir):
+    """
+    Generates a line plot showing total sales traffic and traffic by order type.
+    """
+    logger = logging.getLogger(__name__)
+
+    # 1. Get both total and categorized sales data
+    total_sales, categorized_sales = calculate_sales_by_day_of_week(df)
+
+    # 2. Create the plot
+    plt.figure(figsize=(12, 7))
+    
+    # Plot the total line first, with a distinct style
+    sns.lineplot(x=total_sales.index, y=total_sales.values, 
+                 marker='o', color='black', linestyle='--', 
+                 label='Total Sales', linewidth=2.5)
+
+    # Plot the categorized lines using hue
+    sns.lineplot(data=categorized_sales, x='day_of_week', y='count', 
+                 hue='order_category', marker='o',
+                 palette='tab10')
+
+    # 3. Add titles and labels
+    plt.title('Sales Traffic by Day of the Week', fontsize=16)
+    plt.xlabel('Day of the Week', fontsize=12)
+    plt.ylabel('Number of Unique Receipts', fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend(title='Order Type')
+    plt.tight_layout()
+
+    # 4. Save the plot
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "sales_by_weekday.png"
+    plt.savefig(plot_path)
+    plt.close()
+
+    logger.info(f"Sales by day of week plot saved to: {plot_path}")
+
+
 # --- Main Orchestrator Function for this Module ---
 
 def generate_monthly_report(df, config, file_tag):
@@ -184,6 +224,7 @@ def generate_monthly_report(df, config, file_tag):
 
     plot_stacked_counts_with_percentage_labels(final_df, report_output_dir)
     plot_beverage_distribution(final_df, report_output_dir)
+    plot_sales_by_day_of_week(final_df, report_output_dir)
     
     # (Future step: Call a function to generate the .md summary file here)
     
