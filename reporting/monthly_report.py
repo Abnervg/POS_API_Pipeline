@@ -41,51 +41,87 @@ def create_top_products_plot(df, output_dir):
 
 def plot_beverage_distribution(df, output_dir):
     """
-    Creates a stacked bar chart showing the distribution of beverages,
-    with counts on the Y-axis and percentage labels inside the bars.
+    Creates a stacked bar chart with custom, grouped legends for each
+    beverage category.
     """
     logger = logging.getLogger(__name__)
 
-    # 1. Get the prepared data with counts and percentages
+    # 1. Get the prepared data
     data_for_plot = calculate_beverage_distribution(df)
 
-    # 2. Pivot the data for both counts (for bar heights) and percentages (for labels)
+    # 2. Pivot the data for plotting
     counts_pivot = data_for_plot.pivot(index='category', columns='item_name', values='count').fillna(0)
     percentages_pivot = data_for_plot.pivot(index='category', columns='item_name', values='percentage').fillna(0)
 
-    # 3. Create the stacked bar plot using the raw counts
-    ax = counts_pivot.plot(kind='bar', stacked=True, figsize=(10, 8), width=0.6, colormap='viridis')
+    # 3. Create the plot with the 'tab10' colormap
+    ax = counts_pivot.plot(kind='bar', stacked=True, figsize=(12, 8), width=0.6, colormap='tab10')
 
-    # 4. Add the percentage labels to each segment
+    # 4. Add percentage labels by looking up the correct percentage value
     for container in ax.containers:
-        # Create labels from the corresponding percentage data
+        # Get the item name for the current container (e.g., 'Coca Cola')
+        item_name = container.get_label()
+        
         labels = []
-        for i, v in enumerate(container):
+        for i, bar in enumerate(container):
+            # Get the category name for the current bar (e.g., 'Refrescos y Aguas')
             category_name = counts_pivot.index[i]
-            item_name = container.get_label()
+            
             try:
+                # Look up the percentage from the percentages_pivot DataFrame
                 percentage = percentages_pivot.loc[category_name, item_name]
                 if percentage > 5: # Only show label if segment is large enough
                     labels.append(f'{percentage:.0f}%')
                 else:
                     labels.append('')
             except KeyError:
+                # This handles cases where a combination doesn't exist
                 labels.append('')
+                
         ax.bar_label(container, labels=labels, label_type='center', color='white', weight='bold')
 
-    # 5. Add titles and labels
+    # --- 5. Create Custom Grouped Legends ---
+    handles, labels = ax.get_legend_handles_labels()
+    item_to_category = pd.Series(data_for_plot.category.values, index=data_for_plot.item_name).to_dict()
+    
+    # Create a mapping of category to its legend items (handle and label)
+    category_legends = {cat: [] for cat in data_for_plot['category'].unique()}
+    for handle, label in zip(handles, labels):
+        category = item_to_category.get(label)
+        if category:
+            category_legends[category].append((handle, label))
+            
+    # Remove the default legend
+    if ax.get_legend():
+        ax.get_legend().remove()
+
+    # Add a new, custom legend for each category
+    legend_y_start = 1.02 # Starting vertical position for the first legend
+    for category, items in category_legends.items():
+        if not items: continue
+        
+        # Unzip the handles and labels for the current category
+        cat_handles, cat_labels = zip(*items)
+        
+        legend = ax.legend(cat_handles, cat_labels, title=f'-- {category} --', 
+                           bbox_to_anchor=(1.02, legend_y_start), 
+                           loc='upper left', 
+                           title_fontsize='12',
+                           fontsize='10')
+        ax.add_artist(legend)
+        legend_y_start -= 0.3 # Adjust this value to change spacing between legends
+
+    # 6. Add titles and labels
     plt.title('Beverage Sales Distribution', fontsize=16)
     plt.xlabel('Beverage Category', fontsize=12)
     plt.ylabel('Number of Items Sold', fontsize=12)
     plt.xticks(rotation=0)
-    plt.legend(title='Beverage Type', bbox_to_anchor=(1.02, 1), loc='upper left')
-    plt.tight_layout(rect=[0, 0, 0.85, 1])
+    plt.tight_layout(rect=[0, 0, 0.80, 1]) # Adjust layout to make space for legends
 
-    # 6. Save the plot
+    # 7. Save the plot
     output_dir.mkdir(parents=True, exist_ok=True)
     plot_path = output_dir / "beverage_distribution.png"
     plt.savefig(plot_path)
-    plt.close() # Close the plot to free up memory
+    plt.close()
     
     logger.info(f"Beverage distribution plot saved to: {plot_path}")
  
@@ -99,7 +135,7 @@ def plot_stacked_counts_with_percentage_labels(df, output_dir):
     counts_pivot = data_for_plot.pivot(index='item_name', columns='mayo_type', values='count').fillna(0)
     percentages_pivot = data_for_plot.pivot(index='item_name', columns='mayo_type', values='percentage').fillna(0)
 
-    ax = counts_pivot.plot(kind='bar', stacked=True, figsize=(12, 8), width=0.7, colormap='plasma')
+    ax = counts_pivot.plot(kind='bar', stacked=True, figsize=(12, 8), width=0.7, colormap='tab10')
 
     for container in ax.containers:
         labels = []
