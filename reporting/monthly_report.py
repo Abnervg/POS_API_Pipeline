@@ -57,67 +57,84 @@ def create_top_products_plot(df, output_dir):
 
 
 
-def calculate_mayo_percentages(df):
+def calculate_mayo_percentages_and_counts(df):
     """
-    Calculates the percentage distribution of Mayonesa modifiers for each burger type.
+    Calculates both the raw count and the percentage distribution of 
+    Mayonesa modifiers for each burger type.
+
+    Returns:
+        pd.DataFrame: A DataFrame with columns ['item_name', 'mayo_type', 'count', 'percentage']
     """
-    # Start with the existing count logic
+    # Filter for burgers and then for Mayonesa modifiers
     all_burgers = df[df['item_name'].str.contains("Burger|Smash", case=False, na=False)].copy()
     mayo_burgers = all_burgers[all_burgers['modifiers'].str.contains("Mayonesa", case=False, na=False)].copy()
+    
+    # Extract the specific mayo type
     mayo_burgers['mayo_type'] = mayo_burgers['modifiers'].str.extract(r'Mayonesa\((.*?)\)')
     
     # Get the count of each mayo type per burger
     mayo_counts = mayo_burgers.groupby(['item_name', 'mayo_type']).size().reset_index(name='count')
 
-    # Get the TOTAL number of mayo burgers for each type
-    total_burgers = mayo_counts.groupby('item_name')['count'].sum().reset_index(name='total_count')
-
-    # Merge the total back to calculate percentages
-    percentage_df = pd.merge(mayo_counts, total_burgers, on='item_name')
-    percentage_df['percentage'] = (percentage_df['count'] / percentage_df['total_count']) * 100
+    # Get the total number of mayo burgers for each type to calculate percentages
+    total_burgers_per_item = mayo_counts.groupby('item_name')['count'].transform('sum')
+    mayo_counts['percentage'] = (mayo_counts['count'] / total_burgers_per_item) * 100
     
-    return percentage_df
+    return mayo_counts
 
-def plot_stacked_mayo_percentages(df, output_dir):
+def plot_stacked_counts_with_percentage_labels(df, output_dir):
     """
-    Creates a 100% stacked bar chart showing the percentage of each
-    Mayonesa modifier per burger type, with labels.
+    Creates a stacked bar chart showing the raw count of each Mayonesa modifier,
+    with percentage labels inside each bar segment.
     """
     logger = logging.getLogger(__name__)
 
-    # 1. Get the data with percentages calculated
-    percentage_df = calculate_mayo_percentages(df)
+    # 1. Get the data with both counts and percentages calculated
+    data_for_plot = calculate_mayo_percentages_and_counts(df)
 
-    # 2. Pivot the data to prepare for stacking
-    plot_data = percentage_df.pivot(
-        index='item_name', 
-        columns='mayo_type', 
-        values='percentage'
-    ).fillna(0)
+    # 2. Pivot the data for both counts (for bar heights) and percentages (for labels)
+    counts_pivot = data_for_plot.pivot(index='item_name', columns='mayo_type', values='count').fillna(0)
+    percentages_pivot = data_for_plot.pivot(index='item_name', columns='mayo_type', values='percentage').fillna(0)
 
-    # 3. Create the stacked bar plot
-    ax = plot_data.plot(kind='bar', stacked=True, figsize=(12, 8), width=0.7)
+    # 3. Create the stacked bar plot using the raw counts
+    ax = counts_pivot.plot(kind='bar', stacked=True, figsize=(12, 8), width=0.7)
 
-    # 4. Add the percentage labels to each segment of the bars
+    # 4. Add the percentage labels to each segment
     for container in ax.containers:
-        # Format labels to show one decimal place and a '%' sign
-        labels = [f'{v.get_height():.1f}%' if v.get_height() > 0 else '' for v in container]
+        # Create labels from the corresponding percentage data
+        # We need to get the labels from the pivoted percentage table
+        labels = []
+        for i, v in enumerate(container):
+            # Get the burger name and mayo type for this bar segment
+            burger_name = v.get_x() + v.get_width() / 2
+            mayo_type = container.get_label()
+            
+            # Find the corresponding percentage
+            try:
+                percentage = percentages_pivot.loc[counts_pivot.index[i], mayo_type]
+                if percentage > 0:
+                    labels.append(f'{percentage:.1f}%')
+                else:
+                    labels.append('')
+            except KeyError:
+                labels.append('')
+
         ax.bar_label(container, labels=labels, label_type='center', color='white', weight='bold')
 
     # 5. Add titles and labels
-    plt.title('Mayonnaise Preference per Burger Type', fontsize=16)
+    plt.title('Mayonnaise Preference per Burger Type (by Volume)', fontsize=16)
     plt.xlabel('Burger Type', fontsize=12)
-    plt.ylabel('Percentage of Sales', fontsize=12)
+    plt.ylabel('Number of Burgers Sold', fontsize=12) # Y-axis now shows count
     plt.xticks(rotation=0)
-    plt.legend(title='Mayo Type', bbox_to_anchor=(1.02, 1), loc='upper left') # Move legend outside
-    plt.tight_layout(rect=[0, 0, 0.85, 1]) # Adjust layout to make space for legend
+    plt.legend(title='Mayo Type', bbox_to_anchor=(1.02, 1), loc='upper left')
+    plt.tight_layout(rect=[0, 0, 0.85, 1])
 
     # 6. Save the plot
     output_dir.mkdir(parents=True, exist_ok=True)
-    plot_path = output_dir / "mayonnaise_percentage_by_burger.png"
+    plot_path = output_dir / "mayonnaise_stacked_counts_with_percent_labels.png"
     plt.savefig(plot_path)
     
-    logger.info(f"Mayonnaise percentage plot saved to: {plot_path}")
+    logger.info(f"Stacked count plot with percentage labels saved to: {plot_path}")
+
 
 from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced
 # from etl.load import load_curated_data # Function to load your data
@@ -138,5 +155,5 @@ def generate_monthly_report(monthly_df):
     output_dir = Path(__file__).parent / "plots"
     create_top_products_plot(final_df, output_dir)
     # Plot burgers with modifiers
-    plot_stacked_mayo_percentages(final_df, output_dir)
+    plot_stacked_counts_with_percentage_labels(final_df, output_dir)
     return top_products

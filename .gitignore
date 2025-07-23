@@ -11,6 +11,9 @@ __pycache__/
 # VSCode
 .vscode/
 
+#Plots and reports
+reporting/plots/
+
 #Environments and credentials
 config/config.env
 credentials.csv
