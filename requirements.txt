@@ -1,7 +1,9 @@
 pandas
 requests
 boto3
-python-dotenv
-pyarrow
 s3fs
-
+pyarrow
+python-dotenv
+matplotlib
+seaborn
+numpy
