@@ -4,6 +4,7 @@ import logging
 import pandas as pd
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+import time
 
 # Setup basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -37,28 +38,67 @@ def get_monthly_time_range(tz_name="America/Mexico_City"):
     return utc_start, utc_end
 
 def fetch_api_data(base_url, api_key, time_range):
-    """Fetches receipts and items from the API."""
+    """
+    Fetches all receipts and items from the API, correctly handling pagination
+    for the receipts endpoint. Includes a limit for debugging purposes.
+    """
+    logger = logging.getLogger(__name__)
     created_min, created_max = time_range
     headers = {"Authorization": f"Bearer {api_key}"}
     
-    receipts_url = f"{base_url}/receipts?created_min={created_min}&created_max={created_max}"
+    # --- 1. Fetch Items (Usually not paginated) ---
     items_url = f"{base_url}/items"
-    
-    logging.info("Fetching data from %s to %s", created_min, created_max)
     try:
-        receipts_response = requests.get(receipts_url, headers=headers)
-        receipts_response.raise_for_status()
-        receipts = receipts_response.json().get("receipts", [])
-        
         items_response = requests.get(items_url, headers=headers)
         items_response.raise_for_status()
         items = items_response.json().get("items", [])
-        
-        logging.info("Fetched %d receipts and %d items.", len(receipts), len(items))
-        return receipts, items
+        logger.info(f"Successfully fetched {len(items)} total items.")
     except requests.RequestException as e:
-        logging.error("API request failed: %s", e)
+        logger.error(f"Failed to fetch items from API: {e}")
         raise
+
+    # --- 2. Fetch Receipts with Pagination ---
+    all_receipts = []
+    receipts_url = f"{base_url}/receipts?created_min={created_min}&created_max={created_max}"
+    
+    # --- New: Add a limit for debugging ---
+    receipt_limit = 150 
+    
+    logger.info(f"Fetching receipts from {created_min} to {created_max}...")
+
+    while receipts_url:
+        try:
+            response = requests.get(receipts_url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            
+            # Add the receipts from the current page to our master list
+            page_receipts = data.get("receipts", [])
+            all_receipts.extend(page_receipts)
+            logger.info(f"Fetched {len(page_receipts)} receipts from this page. Total so far: {len(all_receipts)}")
+
+            # --- New: Check if we've hit the limit ---
+            if len(all_receipts) >= receipt_limit:
+                logger.info(f"Reached the debugging limit of {receipt_limit} receipts. Halting fetch.")
+                break # Exit the loop
+
+            # Check for a cursor to get the next page
+            cursor = data.get("cursor")
+            if cursor:
+                # Construct the URL for the next page
+                receipts_url = f"{base_url}/receipts?cursor={cursor}"
+                time.sleep(0.5) # Be polite to the API and wait a moment
+            else:
+                # If no cursor, we've reached the last page
+                receipts_url = None
+
+        except requests.RequestException as e:
+            logger.error(f"API request for receipts failed: {e}")
+            raise
+            
+    logger.info(f"Finished fetching. Total receipts retrieved: {len(all_receipts)}")
+    return all_receipts, items
+
 
 def save_raw_data(receipts, items, output_dir, file_tag):
     """Saves the raw data to JSON files."""
