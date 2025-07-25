@@ -30,9 +30,9 @@ def load_to_aws_bucket(flat_table, bucket_name, file_tag):
     from io import StringIO
     
     s3 = boto3.client('s3')
-    csv_buffer = StringIO()
-    flat_table.to_csv(csv_buffer, index=False)
+    parquet_buffer = StringIO()
+    flat_table.to_parquet(parquet_buffer, index=False)
 
-    logging.info(f"Uploading curated data to S3 bucket {bucket_name} with key curated_data_{file_tag}.csv")
-    s3.put_object(Bucket=bucket_name, Key=f"curated_data_{file_tag}.csv", Body=csv_buffer.getvalue())
-    logging.info(f"Curated data uploaded to S3 bucket {bucket_name} with key curated_data_{file_tag}.csv")
+    logging.info(f"Uploading curated data to S3 bucket {bucket_name} with key curated_data_{file_tag}.parquet")
+    s3.put_object(Bucket=bucket_name, Key=f"curated_data_{file_tag}.parquet", Body=parquet_buffer.getvalue())
+    logging.info(f"Curated data uploaded to S3 bucket {bucket_name} with key curated_data_{file_tag}.parquet")
