@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 import time
+from pathlib import Path
 
 # Setup basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -114,6 +115,19 @@ def save_raw_data(receipts, items, output_dir, file_tag):
         json.dump(items, f, ensure_ascii=False, indent=2)
     logging.info("Wrote %d items to %s", len(items), items_path)
 
+def save_last_extraction(receipts):
+    """
+    Saves last complete extraction (json) to a state file.
+    """
+    script_dir = Path(__file__).parent
+    config_dir = script_dir / "config"
+    state_file_path = config_dir / "state.json"
+    state_data = {
+        "last_successful_extraction": receipts
+    }
+    with state_file_path.open("w", encoding="utf-8") as f:
+        json.dump(state_data, f, ensure_ascii=False, indent=2)
+    logging.info("Wrote last successful extraction to %s", state_file_path)
 
 # Helper functions to perform incremental load data
 
