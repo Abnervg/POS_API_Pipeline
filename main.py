@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import pandas as pd
 
 # Import your custom functions at the top
-from etl.extract import get_monthly_time_range, fetch_api_data, save_raw_data
+from etl.extract import get_monthly_time_range, fetch_api_data, save_raw_data, save_last_extraction, read_last_timestamp
 from etl.transform import load_raw_data, flattening_table_mine, homogenize_order_types, time_slots
 from etl.load import load_to_curated_folder, load_to_aws_bucket
 from reporting.monthly_report import generate_monthly_report
@@ -72,6 +72,23 @@ def run_report(config, file_tag):
 
     logger.info("--- Finished Monthly Report Generation ---")
 
+def run_check(config):
+    """Checks for new data since the last successful extraction."""
+    logger = logging.getLogger(__name__)
+    logger.info("--- Starting Data Check ---")
+    
+    state_file_path = config['project_dir'] / "config" / "state.json"
+    last_timestamp = read_last_timestamp(state_file_path)
+    
+    if not last_timestamp:
+        logger.info("No last successful extraction timestamp found. Cannot check for new data.")
+        return
+    
+    new_receipt_count = get_new_receipt_count(config['base_url'], config['api_key'], last_timestamp)
+    logger.info(f"New receipt count since last extraction: {new_receipt_count}")
+    
+    logger.info("--- Finished Data Check ---")
+
 def main():
     # --- CONFIGURE LOGGING ---
     log_dir = Path(__file__).parent / "logs"
@@ -87,7 +104,7 @@ def main():
     
     # --- SET UP ARGUMENT PARSER ---
     parser = argparse.ArgumentParser(description="Run the ETL and Reporting pipeline.")
-    parser.add_argument('--step', choices=['extract', 'transform', 'load', 'report', 'all'], default='all')
+    parser.add_argument('--step', choices=['extract', 'transform', 'load', 'report', 'check', 'all'], default='all')
     args = parser.parse_args()
 
     # --- LOAD CONFIGURATION ---
@@ -119,6 +136,14 @@ def main():
             raw_dir = config['project_dir'] / "data" / "raw"
             transformed_df = run_transform(raw_dir, file_tag)
         run_load(transformed_df, config, file_tag)
+
+    if args.step in ['check']:
+        if 'state.json' not in locals():
+            state_file_path = config['project_dir'] / "config" / "state.json"
+            if not state_file_path.exists():
+                logging.warning("State file does not exist. Cannot check for new data.")
+                return
+        run_check(config)
         
     if args.step in ['report', 'all']:
         if 'file_tag' not in locals():
