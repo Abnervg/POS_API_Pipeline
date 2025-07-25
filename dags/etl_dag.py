@@ -4,10 +4,11 @@ import pendulum
 from airflow.models.dag import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.models import Variable
-from docker.types import Mount # <-- Import the Mount object
+from docker.types import Mount
 
-# Read the paths from Airflow Variables. This makes the DAG portable.
-host_config_path = Variable.get("HOST_CONFIG_PATH", default_var="/path/to/your/config.env")
+# --- Define all host paths by reading from Airflow Variables at the top ---
+# This makes the DAG clean and portable.
+host_config_folder_path = Variable.get("HOST_CONFIG_FOLDER_PATH", default_var="/path/to/your/config")
 host_aws_creds_path = Variable.get("HOST_AWS_CREDS_PATH", default_var="/path/to/your/.aws")
 
 
@@ -26,11 +27,12 @@ with DAG(
         command="python main.py --step all",
         docker_url="unix://var/run/docker.sock",
         network_mode="bridge",
-        # --- This is the corrected section ---
+        # --- Corrected Mounts Section ---
         mounts=[
+            # Mount the entire config folder to support both .env and state.json files
             Mount(
-                target="/app/config/config.env", # Path inside the container
-                source=host_config_path,        # Path on your host machine
+                target="/app/config",          # Path inside the container
+                source=host_config_folder_path, # Path on your host machine
                 type="bind"
             ),
             Mount(
@@ -40,4 +42,3 @@ with DAG(
             )
         ]
     )
-
