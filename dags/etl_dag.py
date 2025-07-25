@@ -3,10 +3,10 @@ from __future__ import annotations
 import pendulum
 from airflow.models.dag import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
-from airflow.models import Variable # <-- Import the Variable class
+from airflow.models import Variable
+from docker.types import Mount # <-- Import the Mount object
 
 # Read the paths from Airflow Variables. This makes the DAG portable.
-# The second argument is a default value in case the variable is not set.
 host_config_path = Variable.get("HOST_CONFIG_PATH", default_var="/path/to/your/config.env")
 host_aws_creds_path = Variable.get("HOST_AWS_CREDS_PATH", default_var="/path/to/your/.aws")
 
@@ -20,16 +20,24 @@ with DAG(
 ) as dag:
     run_etl_task = DockerOperator(
         task_id="run_full_etl",
-        image="pos-etl-pipeline:latest", # The name of the image you built
+        image="pos-etl-pipeline:latest",
         api_version="auto",
         auto_remove=True,
         command="python main.py --step all",
         docker_url="unix://var/run/docker.sock",
         network_mode="bridge",
-        # Mount your config and AWS credentials into the container using the variables
+        # --- This is the corrected section ---
         mounts=[
-            f"{host_config_path}:/app/config/config.env",
-            f"{host_aws_creds_path}:/root/.aws"
+            Mount(
+                target="/app/config/config.env", # Path inside the container
+                source=host_config_path,        # Path on your host machine
+                type="bind"
+            ),
+            Mount(
+                target="/root/.aws",            # Path inside the container
+                source=host_aws_creds_path,     # Path on your host machine
+                type="bind"
+            )
         ]
     )
 
