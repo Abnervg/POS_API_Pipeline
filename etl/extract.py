@@ -114,3 +114,61 @@ def save_raw_data(receipts, items, output_dir, file_tag):
         json.dump(items, f, ensure_ascii=False, indent=2)
     logging.info("Wrote %d items to %s", len(items), items_path)
 
+
+# Helper functions to perform incremental load data
+
+def read_last_timestamp(state_file_path):
+    """Reads the last successful extraction timestamp from the state file."""
+    try:
+        with open(state_file_path, 'r') as f:
+            state = json.load(f)
+        return state.get('last_successful_extraction_timestamp')
+    except (FileNotFoundError, KeyError):
+        logging.warning("State file not found or is malformed. Returning None.")
+        return None
+
+def get_new_receipt_count(base_url, api_key, last_timestamp):
+    """
+    Makes a lightweight API call to get the COUNT of new receipts since the
+    last successful extraction.
+
+    Args:
+        base_url (str): The base URL for the API.
+        api_key (str): The API key for authentication.
+        last_timestamp (str): The ISO format timestamp of the last receipt.
+
+    Returns:
+        int: The number of new receipts.
+    """
+    logger = logging.getLogger(__name__)
+    if not last_timestamp:
+        logger.warning("No last timestamp found, cannot check for new data.")
+        return 0 # Or a high number to force a run
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    
+    # We make a special request with limit=1 to be as lightweight as possible.
+    # We assume the API returns the total count in a header.
+    # Check your API's documentation for the exact header name (e.g., 'X-Total-Count', 'X-Records').
+    params = {
+        'created_min': last_timestamp,
+        'limit': 1
+    }
+    
+    receipts_url = f"{base_url}/receipts"
+    logger.info(f"Checking for new receipts since {last_timestamp}...")
+
+    try:
+        response = requests.get(receipts_url, headers=headers, params=params)
+        response.raise_for_status()
+        
+        # This is a common pattern. Adjust 'X-Total-Count' if your API uses a different header.
+        total_new_receipts = int(response.headers.get('X-Total-Count', 0))
+        
+        logger.info(f"Found {total_new_receipts} new receipts.")
+        return total_new_receipts
+        
+    except requests.RequestException as e:
+        logger.error(f"API request to check for new data failed: {e}")
+        return 0 # Return 0 on failure to prevent an accidental run
+
