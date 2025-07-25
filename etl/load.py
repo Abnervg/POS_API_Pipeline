@@ -27,10 +27,10 @@ def load_to_aws_bucket(flat_table, bucket_name, file_tag):
     :param file_tag: A tag to identify the file, typically based on the date.
     """
     import boto3
-    from io import StringIO
+    from io import BytesIO
     
     s3 = boto3.client('s3')
-    parquet_buffer = StringIO()
+    parquet_buffer = BytesIO()
     flat_table.to_parquet(parquet_buffer, index=False)
 
     logging.info(f"Uploading curated data to S3 bucket {bucket_name} with key curated_data_{file_tag}.parquet")
