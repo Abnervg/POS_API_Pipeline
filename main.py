@@ -11,6 +11,7 @@ from etl.transform import load_raw_data, flattening_table_mine, homogenize_order
 from etl.load import load_to_curated_folder, load_to_aws_bucket
 from reporting.monthly_report import generate_monthly_report
 from reporting.data_preparation import clean_data_for_reporting, explode_combo_items_advanced
+from etl.extract import get_new_receipt_count
 
 def run_extract(config):
     """Runs the entire data extraction process."""
@@ -144,7 +145,7 @@ def main():
                 logging.warning("State file does not exist. Cannot check for new data.")
                 return
         run_check(config)
-        
+
     if args.step in ['report', 'all']:
         if 'file_tag' not in locals():
             file_tag = get_monthly_time_range()[0][:7]
