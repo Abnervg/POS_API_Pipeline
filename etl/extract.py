@@ -132,57 +132,105 @@ def save_last_extraction(receipts):
 # Helper functions to perform incremental load data
 
 def read_last_timestamp(state_file_path):
-    """Reads the last successful extraction timestamp from the state file."""
+    """
+    Reads the last successful extraction timestamp from the state file.
+    Returns the first day of the current month if the file is missing or malformed.
+    """
     try:
         with open(state_file_path, 'r') as f:
             state = json.load(f)
-        return state.get('last_successful_extraction_timestamp')
-    except (FileNotFoundError, KeyError):
-        logging.warning("State file not found or is malformed. Returning None.")
-        return None
+        timestamp = state.get('last_successful_extraction_timestamp')
+        if timestamp:
+            return timestamp
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        logging.warning("State file not found or invalid. Using start of the current month as default.")
+    
+    # --- Fallback Logic: Calculate the start of the current month ---
+    local_tz = ZoneInfo("America/Mexico_City")
+    now = datetime.now(local_tz)
+    
+    # Use pandas to easily get the start of the current month
+    start_of_month = pd.Timestamp(now).to_period('M').to_timestamp().tz_localize(local_tz)
+    
+    # Convert to UTC and format for the API
+    default_timestamp = start_of_month.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace('+00:00', 'Z')
+    
+    logging.info(f"Defaulting to start of current month: {default_timestamp}")
+    return default_timestamp
 
-def get_new_receipt_count(base_url, api_key, last_timestamp):
+def update_last_timestamp(state_file_path, receipts):
     """
-    Makes a lightweight API call to get the COUNT of new receipts since the
-    last successful extraction.
+    Finds the latest 'created_at' timestamp from a list of new receipts and
+    updates the state file.
+    """
+    if not receipts:
+        logging.info("No new receipts to process. State file remains unchanged.")
+        return
 
-    Args:
-        base_url (str): The base URL for the API.
-        api_key (str): The API key for authentication.
-        last_timestamp (str): The ISO format timestamp of the last receipt.
+    # Find the latest timestamp from the newly fetched data
+    try:
+        latest_timestamp = max(r['created_at'] for r in receipts)
+    except (KeyError, TypeError):
+        logging.error("Could not find 'created_at' field in receipts. State file not updated.")
+        return
 
-    Returns:
-        int: The number of new receipts.
+    state_data = {
+        "last_successful_extraction_timestamp": latest_timestamp
+    }
+    try:
+        with state_file_path.open("w", encoding="utf-8") as f:
+            json.dump(state_data, f, ensure_ascii=False, indent=2)
+        logging.info(f"State file updated with new timestamp: {latest_timestamp}")
+    except IOError as e:
+        logging.error(f"Failed to write to state file: {e}")
+
+
+def fetch_incremental_data(base_url, api_key, last_timestamp):
+    """
+    Fetches the latest batch of receipts and filters them to find new ones.
     """
     logger = logging.getLogger(__name__)
-    if not last_timestamp:
-        logger.warning("No last timestamp found, cannot check for new data.")
-        return 0 # Or a high number to force a run
-
     headers = {"Authorization": f"Bearer {api_key}"}
     
-    # We make a special request with limit=1 to be as lightweight as possible.
-    # We assume the API returns the total count in a header.
-    # Check your API's documentation for the exact header name (e.g., 'X-Total-Count', 'X-Records').
-    params = {
-        'created_min': last_timestamp,
-        'limit': 1
-    }
-    
+    # --- 1. Fetch Items (assuming this is a full refresh each time) ---
+    items_url = f"{base_url}/items"
+    try:
+        items_response = requests.get(items_url, headers=headers)
+        items_response.raise_for_status()
+        items = items_response.json().get("items", [])
+        logger.info(f"Successfully fetched {len(items)} total items.")
+    except requests.RequestException as e:
+        logger.error(f"Failed to fetch items from API: {e}")
+        raise
+
+    # --- 2. Fetch Latest Receipts using only the 'limit' parameter ---
+    params = {'limit': 175}
     receipts_url = f"{base_url}/receipts"
-    logger.info(f"Checking for new receipts since {last_timestamp}...")
+    
+    logger.info(f"Fetching latest 175 receipts to check for new data...")
 
     try:
         response = requests.get(receipts_url, headers=headers, params=params)
         response.raise_for_status()
+        data = response.json()
         
-        # This is a common pattern. Adjust 'X-Total-Count' if your API uses a different header.
-        total_new_receipts = int(response.headers.get('X-Total-Count', 0))
+        latest_receipts = data.get("receipts", [])
         
-        logger.info(f"Found {total_new_receipts} new receipts.")
-        return total_new_receipts
-        
+        # --- 3. Filter for truly new receipts in Python ---
+        # This compares the 'created_at' string of each receipt to the last known timestamp.
+        new_receipts = [
+            r for r in latest_receipts if r.get('created_at') and r['created_at'] > last_timestamp
+        ]
+            
     except requests.RequestException as e:
-        logger.error(f"API request to check for new data failed: {e}")
-        return 0 # Return 0 on failure to prevent an accidental run
+        logger.error(f"API request for receipts failed: {e}")
+        if e.response and e.response.status_code == 402:
+            logger.warning("API limit reached (402 Payment Required). Stopping fetch.")
+            return [], items
+        raise
+            
+    logger.info(f"Finished fetching. Found {len(new_receipts)} new receipts since {last_timestamp}.")
+    return new_receipts, items
+
+
 
