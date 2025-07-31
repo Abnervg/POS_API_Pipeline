@@ -8,7 +8,7 @@ import pandas as pd
 # Import your custom functions at the top
 from etl.extract import get_monthly_time_range, fetch_api_data, save_raw_data, save_last_extraction, read_last_timestamp
 from etl.transform import load_raw_data, flattening_table_mine, homogenize_order_types, time_slots
-from etl.load import load_to_curated_folder, load_to_aws_bucket
+from etl.load import load_to_curated_folder, load_to_aws_bucket, load_historical_data_from_local
 from reporting.monthly_report import generate_monthly_report
 from reporting.data_preparation import clean_data_for_reporting, explode_combo_items_advanced
 from etl.extract import fetch_api_data
@@ -68,10 +68,13 @@ def run_report(config, file_tag):
     
     final_df = pd.read_csv(curated_file_path)
 
-    # Call the main report generation function
-    generate_monthly_report(final_df, config, file_tag)
-
-    logger.info("--- Finished Monthly Report Generation ---")
+def run_load_historical_data(config):
+    """Load historical data from local raw JSON files and merge into S3."""
+    logger = logging.getLogger(__name__)
+    logger.info("--- Starting Historical Data Load ---")
+    local_raw_dir = config['project_dir'] / "data" / "raw"
+    load_historical_data_from_local(local_raw_dir, config['s3_bucket'])
+    logger.info("--- Finished Historical Data Load ---")
 
 def run_check(config):
     """Checks for new data since the last successful extraction."""
@@ -105,7 +108,7 @@ def main():
     
     # --- SET UP ARGUMENT PARSER ---
     parser = argparse.ArgumentParser(description="Run the ETL and Reporting pipeline.")
-    parser.add_argument('--step', choices=['extract', 'transform', 'load', 'report', 'check', 'all'], default='all')
+    parser.add_argument('--step', choices=['extract', 'transform', 'load', 'report', 'check', 'load_historical', 'all'], default='all')
     args = parser.parse_args()
 
     # --- LOAD CONFIGURATION ---
@@ -145,6 +148,10 @@ def main():
                 logging.warning("State file does not exist. Cannot check for new data.")
                 return
         run_check(config)
+    
+    if args.step in ['load_historical', 'all']:
+        run_load_historical_data(config)
+
 
     if args.step in ['report', 'all']:
         if 'file_tag' not in locals():
