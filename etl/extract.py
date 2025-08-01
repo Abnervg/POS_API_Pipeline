@@ -150,7 +150,6 @@ def read_last_timestamp(state_file_path):
     now = datetime.now(local_tz)
     
     # Use pandas to easily get the start of the current month
-    
     start_of_month = pd.Timestamp(now).to_period('M').to_timestamp().tz_localize(local_tz)
     
     # Convert to UTC and format for the API
