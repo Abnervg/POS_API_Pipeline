@@ -143,15 +143,14 @@ def main():
 
     if args.step in ['check']:
         if 'state.json' not in locals():
-            state_file_path = config['project_dir'] / "config" / "state.json"
+            state_file_path = config['project_dir'] / "config" / "state.json" 
             if not state_file_path.exists():
                 logging.warning("State file does not exist. Cannot check for new data.")
                 return
         run_check(config)
     
-    if args.step in ['load_historical', 'all']:
+    if args.step in ['load_historical']:
         run_load_historical_data(config)
-
 
     if args.step in ['report', 'all']:
         if 'file_tag' not in locals():

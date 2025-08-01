@@ -25,8 +25,11 @@ def _read_last_timestamp(state_file_path):
             state = json.load(f)
         return state.get('last_successful_extraction_timestamp')
     except (FileNotFoundError, KeyError):
-        # Return a default start time if the file is missing or malformed
-        return "2025-07-01T00:00:00.000Z"
+        # Dynamically calculate the start of the current month in the correct timezone
+        now = pendulum.now("America/Mexico_City")
+        start_of_month = now.start_of('month')
+        # Convert to UTC and format for the API (e.g., "2025-07-01T06:00:00.000Z")
+        return start_of_month.in_tz('UTC').to_iso8601_string().replace('+00:00', 'Z')
 
 @task.branch(task_id="check_run_conditions")
 def check_run_conditions_func(**kwargs):
