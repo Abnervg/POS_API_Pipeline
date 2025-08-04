@@ -7,6 +7,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
 
+#Import cleaning functions
+from reporting.data_preparation import clean_data_for_reporting, explode_combo_items_advanced
+
 
 
 # Define transformation functions to be used in the report generation
@@ -193,39 +196,33 @@ See the accompanying plot images in this directory for more detailed trends:
 
 def generate_cumulative_report(config):
     """
-    Generates a cumulative report by aggregating data from the S3 bucket.
-
-        Args:
-            bucket_name (str): The name of the S3 bucket containing the data.
-
-        Returns:
-            pd.DataFrame: A DataFrame containing the cumulative report.
+    Orchestrates the entire cumulative report generation process.
     """
     logger = logging.getLogger(__name__)
+    logger.info("--- Starting Cumulative Report Generation ---")
+
+    # 1. Load all historical data from S3
+    s3_bucket = config['s3_bucket']
+    all_data_df = request_data(s3_bucket)
+
+    if all_data_df.empty:
+        logger.warning("No historical data found. Skipping cumulative report.")
+        return
+
+    # 2. Prepare the data for reporting
+    cleaned_df = clean_data_for_reporting(all_data_df)
+    exploded_df = explode_combo_items_advanced(cleaned_df)
+
+    # 3. Define the output directory
+    output_dir = config['project_dir'] / "reports" / "cumulative_report"
     
-    # Define output directory for plots
-    output_dir = config['project_dir'] / "reports" / "cumulative"
-
-    # Load historical data
-    s3_bucket = config['bucket_name']
-    all_data = request_data(s3_bucket)
-
-    logger.info(f"--- Starting Cumulative Report Generation ---")
-    if all_data.empty:
-        logger.info("No historical data found. Returning empty report.")
-        return pd.DataFrame()
+    # 4. Generate plots
+    plot_cumulative_sales_trend(cleaned_df, output_dir)
     
-    # This section performs data transformations
-    cumulative_kpis = calculate_cumulative_metrics(all_data)
+    # 5. Generate the final .md summary file
+    create_cumulative_summary_report(cleaned_df, exploded_df, output_dir)
 
-    # This section produce different plots to use for the report
-    plot_cumulative_sales_trend(all_data, output_dir)
-
-    # This section generates the final report
-    
-    #
-
-    logger.info(f"--- Finished Cumulative Report Generation ---")
+    logger.info("--- Finished Cumulative Report Generation ---")
 
 
 

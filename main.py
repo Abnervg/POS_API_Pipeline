@@ -13,6 +13,7 @@ from reporting.monthly_report import generate_monthly_report
 from reporting.data_preparation import clean_data_for_reporting, explode_combo_items_advanced
 from etl.extract import fetch_api_data
 from etl.load import get_new_receipt_count
+from reporting.cumulative_report import generate_cumulative_report
 
 def run_extract(config):
     """Runs the entire data extraction process."""
@@ -69,6 +70,9 @@ def run_report(config, file_tag):
     
     final_df = pd.read_csv(curated_file_path)
     generate_monthly_report(final_df, file_tag)
+
+    """Orchestrates the cumulative report generation."""
+    generate_cumulative_report(final_df, exploded_df, output_dir)
 
 def run_load_historical_data(config):
     """Load historical data from local raw JSON files and merge into S3."""
@@ -158,6 +162,7 @@ def main():
         if 'file_tag' not in locals():
             file_tag = get_monthly_time_range()[0][:7]
         run_report(config, file_tag)
+        
 
 if __name__ == "__main__":
     main()
