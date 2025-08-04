@@ -38,7 +38,7 @@ def load_to_aws_bucket(flat_table, bucket_name, file_tag):
     flat_table.to_parquet(parquet_buffer, index=False)
 
     logging.info(f"Uploading curated data to S3 bucket {bucket_name} with key curated_data_{file_tag}.parquet")
-    s3.put_object(Bucket=bucket_name, Key=f"curated_data_{file_tag}.parquet", Body=parquet_buffer.getvalue())
+    s3.get_object(Bucket=bucket_name, Key=f"curated_data_{file_tag}.parquet", Body=parquet_buffer.getvalue())
     logging.info(f"Curated data uploaded to S3 bucket {bucket_name} with key curated_data_{file_tag}.parquet")
 
 def load_historical_data_from_local(local_raw_dir, s3_bucket):

@@ -12,6 +12,7 @@ from etl.load import load_to_curated_folder, load_to_aws_bucket, load_historical
 from reporting.monthly_report import generate_monthly_report
 from reporting.data_preparation import clean_data_for_reporting, explode_combo_items_advanced
 from etl.extract import fetch_api_data
+from etl.load import get_new_receipt_count
 
 def run_extract(config):
     """Runs the entire data extraction process."""
@@ -67,6 +68,7 @@ def run_report(config, file_tag):
         raise FileNotFoundError(f"Curated data file not found: {curated_file_path}. Run transform/load steps first.")
     
     final_df = pd.read_csv(curated_file_path)
+    generate_monthly_report(final_df, file_tag)
 
 def run_load_historical_data(config):
     """Load historical data from local raw JSON files and merge into S3."""
