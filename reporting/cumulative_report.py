@@ -100,27 +100,35 @@ def plot_cumulative_sales_trend(df, output_dir):
 
 def request_data(bucket_name):
     """
-    Loads all partitioned monthly data from S3 and merges them into a single dataframe for cumulative analysis
+    Loads all partitioned monthly data from the S3 data lake and combines it
+    into a single DataFrame for cumulative analysis.
 
-        Args:bucketname(str): S3 bucketname where data is stored
+    Args:
+        s3_bucket (str): The S3 bucket where the curated data is stored.
 
-        Returns:  
+    Returns:
+        pd.DataFrame: A single DataFrame containing all historical data.
     """
     logger = logging.getLogger(__name__)
-    # Define S3 path
-    s3_path = f"s3://{bucket_name}/curated_data/**/*.parquet"
-
-    logger.info(f"Loading historical data from S3 bucket {bucket_name}")
-    # Merge data
+    
+    # Define the base path for your partitioned data
+    base_s3_path = f"s3://{bucket_name}/curated_data/"
+    
+    logger.info(f"Loading all historical data from S3 path: {base_s3_path}")
+    
     try:
-        historical_df = pd.read_parquet(s3_path)
-        logger.info(f"Successfully extracted {len(historical_df)} records")
+        # Use pandas to read the entire partitioned dataset.
+        # It will automatically discover the 'year=' and 'month=' directories.
+        historical_df = pd.read_parquet(base_s3_path)
+        
+        logger.info(f"Successfully loaded a total of {len(historical_df)} historical records.")
         return historical_df
+        
     except FileNotFoundError:
-        logger.warning(f"Failed to find data in S3 {bucket_name}, returning empty DataFrame")
-        return pd.DataFrame()  # Return an empty DataFrame if no data is found
+        logger.warning(f"No data found at the specified path: {base_s3_path}. Returning an empty DataFrame.")
+        return pd.DataFrame()
     except Exception as e:
-        logger.error(f"An error occurred while loading data from S3: {e}")
+        logger.error(f"An error occurred while loading historical data from S3: {e}")
         raise
 
 # Cumulative report template generation function
@@ -143,7 +151,7 @@ def create_cumulative_summary_report(df, exploded_df, output_dir):
     # Get the all-time top 5 selling items from the exploded data
     top_items = exploded_df['item_name'].value_counts().head(5)
     top_items_list_str = "\n".join(
-        [f"1. **{name}**: {count} sold" for name, count in top_items.items()]
+        [f"-> **{name}**: {count} sold" for name, count in top_items.items()]
     )
 
     # --- 2. Assemble the Report Content in Markdown Format ---

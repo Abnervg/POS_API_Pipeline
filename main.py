@@ -12,7 +12,7 @@ from etl.load import load_to_curated_folder, load_to_aws_bucket, load_historical
 from reporting.monthly_report import generate_monthly_report
 from reporting.data_preparation import clean_data_for_reporting, explode_combo_items_advanced
 from etl.extract import fetch_api_data
-from etl.load import get_new_receipt_count
+#from etl.extract import get_new_receipt_count
 from reporting.cumulative_report import generate_cumulative_report
 
 def run_extract(config):
@@ -57,7 +57,7 @@ def run_load(processed_df, config, file_tag):
     
     logger.info("--- Finished Load Step ---")
 
-def run_report(config, file_tag):
+def run_monthly_report(config, file_tag):
     """Orchestrates the monthly report generation."""
     logger = logging.getLogger(__name__)
     logger.info("--- Starting Monthly Report Generation ---")
@@ -71,8 +71,13 @@ def run_report(config, file_tag):
     final_df = pd.read_csv(curated_file_path)
     generate_monthly_report(final_df, file_tag)
 
-    """Orchestrates the cumulative report generation."""
-    generate_cumulative_report(final_df, exploded_df, output_dir)
+def run_cumulative_report(config):
+    logger = logging.getLogger(__name__)
+    """Generates the cumulative report based on all historical data."""
+    logger.info("--- Starting Cumulative Report Generation ---")
+    generate_cumulative_report(config)
+    logger.info("--- Finished Cumulative Report Generation ---")
+
 
 def run_load_historical_data(config):
     """Load historical data from local raw JSON files and merge into S3."""
@@ -114,7 +119,7 @@ def main():
     
     # --- SET UP ARGUMENT PARSER ---
     parser = argparse.ArgumentParser(description="Run the ETL and Reporting pipeline.")
-    parser.add_argument('--step', choices=['extract', 'transform', 'load', 'report', 'check', 'load_historical', 'all'], default='all')
+    parser.add_argument('--step', choices=['extract', 'transform', 'load', 'monthly_report', 'cumulative_report', 'check', 'load_historical', 'all'], default='all')
     args = parser.parse_args()
 
     # --- LOAD CONFIGURATION ---
@@ -158,10 +163,13 @@ def main():
     if args.step in ['load_historical']:
         run_load_historical_data(config)
 
-    if args.step in ['report', 'all']:
+    if args.step in ['cumulative_report', 'all']:
+        run_cumulative_report(config)
+
+    if args.step in ['monthly_report', 'all']:
         if 'file_tag' not in locals():
             file_tag = get_monthly_time_range()[0][:7]
-        run_report(config, file_tag)
+        run_monthly_report(config, file_tag)
         
 
 if __name__ == "__main__":
