@@ -74,9 +74,7 @@ def run_monthly_report(config, file_tag):
 def run_cumulative_report(config):
     logger = logging.getLogger(__name__)
     """Generates the cumulative report based on all historical data."""
-    logger.info("--- Starting Cumulative Report Generation ---")
     generate_cumulative_report(config)
-    logger.info("--- Finished Cumulative Report Generation ---")
 
 
 def run_load_historical_data(config):

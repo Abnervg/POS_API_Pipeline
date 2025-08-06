@@ -50,38 +50,42 @@ def calculate_cumulative_metrics(df):
 # Define plotting functions to visualize the data
 def plot_cumulative_sales_trend(df, output_dir):
     """
-    Generates a time series line plot of total sales per month.
+    Generates a time series bar chart of total sales for each individual month.
 
     Args:
         df (pd.DataFrame): The complete historical data.
         output_dir (Path): The directory where the plot will be saved.
     """
     logger = logging.getLogger(__name__)
-    logger.info("Generating cumulative sales trend plot...")
+    logger.info("Generating monthly sales trend plot...")
 
     df = df.copy()
     df['price'] = pd.to_numeric(df['price'], errors='coerce').fillna(0)
     df['shifted_time'] = pd.to_datetime(df['shifted_time'], errors='coerce')
     df.dropna(subset=['shifted_time'], inplace=True)
 
-    # Resample the data to get the sum of sales for each month
-    monthly_sales = df.set_index('shifted_time')['price'].resample('M').sum()
+    # --- Data Aggregation using groupby ---
+    # Create a column with the year and month (e.g., '2025-07')
+    df['month'] = df['shifted_time'].dt.strftime('%Y-%m')
+    
+    # Group by this new month column and sum the sales
+    monthly_sales = df.groupby('month')['price'].sum().reset_index()
 
     # Create the plot
-    plt.figure(figsize=(14, 7))
+    plt.figure(figsize=(12, 7))
     ax = sns.lineplot(
-        x=monthly_sales.index, 
-        y=monthly_sales.values, 
-        marker='o', 
-        linestyle='-',
+        data=monthly_sales, 
+        x='month', 
+        y='price', 
         color='navy'
     )
 
     # Add titles and labels
-    plt.title('Total Sales Trend Over Time', fontsize=18)
+    plt.title('Total Sales per Month', fontsize=18)
     plt.xlabel('Month', fontsize=12)
     plt.ylabel('Total Sales ($)', fontsize=12)
-    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+    plt.grid(axis='y', linestyle='--', linewidth=0.5)
+    plt.xticks(rotation=45, ha='right')
     
     # Format the y-axis to show dollar values
     ax.yaxis.set_major_formatter('${x:,.0f}')
@@ -90,11 +94,11 @@ def plot_cumulative_sales_trend(df, output_dir):
 
     # Save the plot
     output_dir.mkdir(parents=True, exist_ok=True)
-    plot_path = output_dir / "cumulative_sales_trend.png"
+    plot_path = output_dir / "monthly_sales_trend.png"
     plt.savefig(plot_path)
     plt.close()
 
-    logger.info(f"Cumulative sales trend plot saved to: {plot_path}")
+    logger.info(f"Monthly sales trend plot saved to: {plot_path}")
 
 # Function to load data from S3
 
