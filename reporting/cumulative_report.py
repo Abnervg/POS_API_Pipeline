@@ -47,7 +47,164 @@ def calculate_cumulative_metrics(df):
     
     return kpis
 
-# Define plotting functions to visualize the data
+def calculate_weekday_vs_weekend_performance(df):
+    """
+    Categorizes sales into Weekday vs. Weekend and calculates key metrics for each.
+
+    Args:
+        df (pd.DataFrame): The complete historical data (un-exploded for financial metrics).
+
+    Returns:
+        pd.DataFrame: A summary DataFrame with metrics for weekdays and weekends.
+    """
+    df = df.copy()
+    df['shifted_time'] = pd.to_datetime(df['shifted_time'], errors='coerce')
+    df.dropna(subset=['shifted_time'], inplace=True)
+
+    # 1. Create a 'period_type' column (Weekday vs. Weekend)
+    # Monday is 0, Sunday is 6. Weekends are Friday, Saturday, Sunday (4, 5, 6).
+    df['period_type'] = df['shifted_time'].dt.dayofweek.apply(
+        lambda x: 'Weekend' if x >= 4 else 'Weekday'
+    )
+
+    # 2. Group by the new category and calculate metrics
+    performance_summary = df.groupby('period_type').agg(
+        total_revenue=('price', 'sum'),
+        total_receipts=('receipt_number', 'nunique')
+    ).reset_index()
+
+    # 3. Calculate the average sale value per receipt
+    performance_summary['avg_sale_per_receipt'] = (
+        performance_summary['total_revenue'] / performance_summary['total_receipts']
+    )
+
+    return performance_summary
+
+def calculate_hourly_sales_traffic(df):
+    """
+    Calculates the number of unique receipts for each hour of each day of the week.
+
+    Args:
+        df (pd.DataFrame): The complete historical data.
+
+    Returns:
+        pd.DataFrame: A pivoted DataFrame ready for a heatmap, with days as rows
+                      and hours as columns.
+    """
+    df = df.copy()
+    df['shifted_time'] = pd.to_datetime(df['shifted_time'], errors='coerce')
+    df.dropna(subset=['shifted_time'], inplace=True)
+
+    # Create 'day_of_week' and 'hour' columns for grouping
+    df['day_of_week'] = df['shifted_time'].dt.day_name()
+    df['hour'] = df['shifted_time'].dt.hour
+
+    # Group by day and hour, and count the number of unique receipts
+    hourly_traffic = df.groupby(['day_of_week', 'hour'])['receipt_number'].nunique().reset_index()
+
+    # Pivot the data to create a matrix: days on the y-axis, hours on the x-axis
+    heatmap_data = hourly_traffic.pivot(index='day_of_week', columns='hour', values='receipt_number').fillna(0)
+
+    # Order the days of the week correctly
+    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    heatmap_data = heatmap_data.reindex(day_order)
+
+    return heatmap_data
+
+
+#-----Define plotting functions to visualize the data----
+
+# Produce a bar chart comparing weekday vs. weekend performance
+def plot_weekday_vs_weekend_comparison(df, output_dir):
+    """
+    Generates and saves bar charts comparing key metrics for weekdays vs. weekends.
+
+    Args:
+        df (pd.DataFrame): The complete historical data.
+        output_dir (Path): The directory where the plot will be saved.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating weekday vs. weekend performance plot...")
+
+    # 1. Get the prepared data
+    performance_data = calculate_weekday_vs_weekend_performance(df)
+
+    # 2. Create the plot with subplots for each metric
+    fig, axes = plt.subplots(1, 3, figsize=(20, 7))
+    fig.suptitle('Weekday vs. Weekend Performance Comparison', fontsize=20)
+
+    # Plot 1: Total Revenue
+    sns.barplot(ax=axes[0], data=performance_data, x='period_type', y='total_revenue', palette='viridis')
+    axes[0].set_title('Total Revenue', fontsize=14)
+    axes[0].set_xlabel('')
+    axes[0].set_ylabel('Total Sales ($)')
+    axes[0].yaxis.set_major_formatter('${x:,.0f}')
+
+    # Plot 2: Total Receipts
+    sns.barplot(ax=axes[1], data=performance_data, x='period_type', y='total_receipts', palette='plasma')
+    axes[1].set_title('Total Customer Traffic', fontsize=14)
+    axes[1].set_xlabel('Period', fontsize=12)
+    axes[1].set_ylabel('Number of Unique Receipts')
+
+    # Plot 3: Average Sale per Receipt
+    sns.barplot(ax=axes[2], data=performance_data, x='period_type', y='avg_sale_per_receipt', palette='magma')
+    axes[2].set_title('Average Spend per Customer', fontsize=14)
+    axes[2].set_xlabel('')
+    axes[2].set_ylabel('Average Sale Value ($)')
+    axes[2].yaxis.set_major_formatter('${x:,.2f}')
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+
+    # 3. Save the plot
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "weekday_vs_weekend_performance.png"
+    plt.savefig(plot_path)
+    plt.close()
+
+    logger.info(f"Weekday vs. weekend performance plot saved to: {plot_path}")
+
+
+# Produce a hourly sales heatmap
+def plot_hourly_sales_heatmap(df, output_dir):
+    """
+    Generates and saves a heatmap of sales traffic by day and hour.
+
+    Args:
+        df (pd.DataFrame): The complete historical data.
+        output_dir (Path): The directory where the plot will be saved.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating hourly sales heatmap...")
+
+    # 1. Get the prepared data
+    heatmap_data = calculate_hourly_sales_traffic(df)
+
+    # 2. Create the heatmap plot
+    plt.figure(figsize=(18, 8))
+    sns.heatmap(
+        heatmap_data,
+        annot=True,      # Show the number of receipts in each cell
+        fmt=".0f",       # Format the numbers as integers
+        cmap="YlGnBu",   # Use a sequential color map (Yellow-Green-Blue)
+        linewidths=.5
+    )
+
+    # 3. Add titles and labels
+    plt.title('Hourly Customer Traffic by Day of the Week', fontsize=18)
+    plt.xlabel('Hour of the Day', fontsize=12)
+    plt.ylabel('Day of the Week', fontsize=12)
+    plt.xticks(rotation=0)
+    plt.yticks(rotation=0)
+
+    # 4. Save the plot
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "hourly_sales_heatmap.png"
+    plt.savefig(plot_path, bbox_inches='tight') # Use bbox_inches to prevent labels from being cut off
+    plt.close()
+
+    logger.info(f"Hourly sales heatmap saved to: {plot_path}")
+
+# Produce a time series bar chart of total sales for each individual month
 def plot_cumulative_sales_trend(df, output_dir):
     """
     Generates a time series bar chart of total sales for each individual month.
@@ -230,6 +387,8 @@ def generate_cumulative_report(config):
     
     # 4. Generate plots
     plot_cumulative_sales_trend(cleaned_df, output_dir)
+    plot_hourly_sales_heatmap(cleaned_df, output_dir)
+    plot_weekday_vs_weekend_comparison(cleaned_df, output_dir)
     
     # 5. Generate the final .md summary file
     create_cumulative_summary_report(cleaned_df, exploded_df, output_dir)
