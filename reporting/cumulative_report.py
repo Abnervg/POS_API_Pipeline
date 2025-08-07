@@ -6,6 +6,10 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
+from mlxtend.frequent_patterns import apriori, association_rules
+from mlxtend.preprocessing import TransactionEncoder
+import re
+from collections import Counter
 
 #Import cleaning functions
 from reporting.data_preparation import clean_data_for_reporting, explode_combo_items_advanced
@@ -110,6 +114,96 @@ def calculate_hourly_sales_traffic(df):
     heatmap_data = heatmap_data.reindex(day_order)
 
     return heatmap_data
+
+def find_frequent_item_combinations(df):
+    """
+    Performs a market basket analysis to find which items are frequently
+    purchased together on the same receipt.
+
+    Args:
+        df (pd.DataFrame): The cleaned historical data (BEFORE exploding combos).
+
+    Returns:
+        pd.DataFrame: A DataFrame showing the association rules.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Performing market basket analysis...")
+
+    # 1. Group items by receipt to create a "basket" for each transaction
+    baskets = df.groupby('receipt_number')['item_name'].apply(list).tolist()
+
+    # 2. Transform the data into the required format for the Apriori algorithm
+    te = TransactionEncoder()
+    te_ary = te.fit(baskets).transform(baskets)
+    basket_df = pd.DataFrame(te_ary, columns=te.columns_)
+
+    # 3. Find the frequent itemsets using the Apriori algorithm
+    # min_support=0.01 means we're looking for combinations that appear in at least 1% of all transactions.
+    frequent_itemsets = apriori(basket_df, min_support=0.01, use_colnames=True)
+
+    if frequent_itemsets.empty:
+        logger.warning("No frequent item combinations found with the current support threshold.")
+        return pd.DataFrame()
+
+    # 4. Generate the association rules
+    # min_threshold=0.5 means we're looking for rules where the confidence is at least 50%.
+    rules = association_rules(frequent_itemsets, metric="lift", min_threshold=0.5)
+    
+    # Sort by "lift" to find the most significant relationships
+    rules.sort_values(by='lift', ascending=False, inplace=True)
+
+    logger.info(f"Found {len(rules)} significant item combination rules.")
+    return rules
+
+def analyze_combo_choices(df):
+    """
+    Analyzes the choices made within combo items.
+
+    Args:
+        df (pd.DataFrame): The cleaned historical data (BEFORE exploding combos).
+
+    Returns:
+        dict: A dictionary where keys are combo names and values are the counts of each choice.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Analyzing choices within combo items...")
+
+    combo_df = df[df['item_name'].str.contains('Combo', case=False, na=False)].copy()
+    
+    combo_analysis = {}
+
+    for combo_name in combo_df['item_name'].unique():
+        # Filter for just this specific combo
+        specific_combo_df = combo_df[combo_df['item_name'] == combo_name]
+        
+        # This will hold all the choices made for this combo
+        all_choices = []
+        
+        # Define the keys we care about (the choices)
+        choice_keys = ['hamburguesa', 'refresco', 'papas', 'malteada']
+
+        def extract_choices(modifier_string):
+            if not isinstance(modifier_string, str): return []
+            choices = []
+            for part in modifier_string.split(';'):
+                key = part.split('(')[0].lower()
+                if any(item_key in key for item_key in choice_keys):
+                    match = re.search(r'\((.*?)\)', part)
+                    if match:
+                        choices.append(match.group(1).strip())
+            return choices
+
+        # Apply the function to every modifier string for this combo
+        list_of_choices = specific_combo_df['modifiers'].apply(extract_choices)
+        
+        # Flatten the list of lists into a single list
+        for sublist in list_of_choices:
+            all_choices.extend(sublist)
+            
+        # Count the occurrences of each choice
+        combo_analysis[combo_name] = Counter(all_choices)
+
+    return combo_analysis
 
 
 #-----Define plotting functions to visualize the data----
@@ -292,30 +386,89 @@ def request_data(bucket_name):
         logger.error(f"An error occurred while loading historical data from S3: {e}")
         raise
 
-# Cumulative report template generation function
-def create_cumulative_summary_report(df, exploded_df, output_dir):
+def plot_combo_choices(df, output_dir):
+    """
+    Generates and saves a bar chart for each combo, showing the popularity of choices.
+
+    Args:
+        df (pd.DataFrame): The complete historical data (un-exploded).
+        output_dir (Path): The directory where the plots will be saved.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating plots for combo choices...")
+
+    # 1. Get the analysis data
+    combo_analysis_data = analyze_combo_choices(df)
+
+    # 2. Loop through each combo and create a plot for it
+    for combo_name, choices_counter in combo_analysis_data.items():
+        if not choices_counter:
+            logger.warning(f"No choices found for combo '{combo_name}'. Skipping plot.")
+            continue
+
+        # Convert the Counter object to a DataFrame for easy plotting
+        choices_df = pd.DataFrame(choices_counter.items(), columns=['Choice', 'Count']).sort_values(by='Count', ascending=False)
+
+        # Create the plot
+        plt.figure(figsize=(10, 6))
+        ax = sns.barplot(data=choices_df, x='Choice', y='Count', palette='rocket')
+
+        # Add labels on top of the bars
+        ax.bar_label(ax.containers[0])
+
+        # Add titles and labels
+        plt.title(f"Most Popular Choices for '{combo_name}'", fontsize=16)
+        plt.xlabel('Choice', fontsize=12)
+        plt.ylabel('Number of Times Chosen', fontsize=12)
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+
+        # Sanitize the combo name to create a valid filename
+        safe_filename = re.sub(r'[^a-zA-Z0-9_]', '', combo_name.replace(' ', '_')).lower()
+        
+        # Save the plot
+        output_dir.mkdir(parents=True, exist_ok=True)
+        plot_path = output_dir / f"combo_choices_{safe_filename}.png"
+        plt.savefig(plot_path)
+        plt.close()
+
+        logger.info(f"Combo choice plot saved to: {plot_path}")
+
+# Function to create a comprehensive cumulative summary report in Markdown format
+def create_cumulative_summary_report(df, exploded_df, output_dir, association_rules_df):
     """
     Generates a comprehensive cumulative summary report in Markdown format.
 
     Args:
         df (pd.DataFrame): The complete historical data, cleaned but not exploded.
         exploded_df (pd.DataFrame): The historical data after exploding combo items.
+        association_rules_df (pd.DataFrame): The results from the market basket analysis.
         output_dir (Path): The directory to save the report file.
     """
+    
     logger = logging.getLogger(__name__)
     logger.info("Generating comprehensive cumulative summary report...")
 
     # --- 1. Calculate Key Performance Indicators (KPIs) ---
-    # Call the dedicated function to calculate metrics
     kpis = calculate_cumulative_metrics(df)
     
-    # Get the all-time top 5 selling items from the exploded data
     top_items = exploded_df['item_name'].value_counts().head(5)
     top_items_list_str = "\n".join(
         [f"-> **{name}**: {count} sold" for name, count in top_items.items()]
     )
 
-    # --- 2. Assemble the Report Content in Markdown Format ---
+    # --- 2. Format the Market Basket Analysis Results ---
+    market_basket_table = "| Items Purchased Together | Likelihood |\n| :--- | :--- |\n"
+    # Take the top 5 most confident rules
+    for _, row in association_rules_df.head(5).iterrows():
+        # Convert frozensets to readable strings
+        antecedents = ', '.join(list(row['antecedents']))
+        consequents = ', '.join(list(row['consequents']))
+        confidence = row['confidence']
+        market_basket_table += f"| If a customer buys **{antecedents}**, they also buy **{consequents}** | {confidence:.0%} |\n"
+
+
+    # --- 3. Assemble the Report Content in Markdown Format ---
     report_content = f"""
 # Cumulative Business Performance Report
 
@@ -342,13 +495,21 @@ This list represents the most frequently sold individual items, including those 
 
 ---
 
+## 🛒 Popular Product Combinations
+
+This table shows which items are frequently purchased together, based on a confidence threshold of 50%.
+
+{market_basket_table}
+
+---
+
 ## 📊 Visualizations
 
 See the accompanying plot images in this directory for more detailed trends:
 - `cumulative_sales_trend.png`
 """
 
-    # --- 3. Save the Report to a File ---
+    # --- 4. Save the Report to a File ---
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / "cumulative_summary_report.md"
     
@@ -389,9 +550,11 @@ def generate_cumulative_report(config):
     plot_cumulative_sales_trend(cleaned_df, output_dir)
     plot_hourly_sales_heatmap(cleaned_df, output_dir)
     plot_weekday_vs_weekend_comparison(cleaned_df, output_dir)
+    plot_combo_choices(cleaned_df, output_dir)
     
     # 5. Generate the final .md summary file
-    create_cumulative_summary_report(cleaned_df, exploded_df, output_dir)
+    association_rules_df = find_frequent_item_combinations(exploded_df)
+    create_cumulative_summary_report(cleaned_df, exploded_df, output_dir, association_rules_df)
 
     logger.info("--- Finished Cumulative Report Generation ---")
 
