@@ -38,6 +38,70 @@ def get_monthly_time_range(tz_name="America/Mexico_City"):
     
     return utc_start, utc_end
 
+# Fetch all historical data from the API
+def fetch_all_historical_data(base_url, api_key, start_date="2020-01-01T00:00:00.000Z"): # Here it goes the last date you want to fetch
+    """
+    Fetches ALL receipts from the API, starting from a given date.
+    This is intended for a one-time historical backfill.
+    """
+    logger = logging.getLogger(__name__)
+    headers = {"Authorization": f"Bearer {api_key}"}
+    
+    # --- Fetch Items ---
+    items_url = f"{base_url}/items"
+    items_response = requests.get(items_url, headers=headers)
+    items_response.raise_for_status()
+    items = items_response.json().get("items", [])
+    logger.info(f"Successfully fetched {len(items)} total items.")
+
+    # --- Fetch ALL Receipts with Pagination ---
+    all_receipts = []
+    # Use the 'created_at_min' parameter to start from the beginning of your history
+    # The API sorts results from newest to oldest by default.
+    receipts_url = f"{base_url}/receipts?created_at_min={start_date}"
+    
+    logger.info(f"Starting full historical data extraction from {start_date}...")
+
+    page_count = 1
+    while receipts_url:
+        try:
+            response = requests.get(receipts_url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            
+            page_receipts = data.get("receipts", [])
+            if not page_receipts:
+                break # Stop when a page has no more receipts
+
+            all_receipts.extend(page_receipts)
+            logger.info(f"Page {page_count}: Fetched {len(page_receipts)} receipts. Total so far: {len(all_receipts)}")
+
+            cursor = data.get("cursor")
+            if cursor:
+                receipts_url = f"{base_url}/receipts?cursor={cursor}"
+                page_count += 1
+                time.sleep(0.5) # Be polite to the API
+            else:
+                receipts_url = None
+
+        except requests.RequestException as e:
+            logger.error(f"API request for receipts failed: {e}")
+            raise
+            
+    logger.info(f"Finished full historical extraction. Total receipts retrieved: {len(all_receipts)}")
+
+    # --- New: Log the date range of the extracted data ---
+    if all_receipts:
+        # The API returns receipts sorted from newest to oldest.
+        # So, the first receipt in the list is the newest (last date).
+        last_date = all_receipts[0].get('created_at', 'N/A')
+        # And the last receipt in the list is the oldest (first date).
+        first_date = all_receipts[-1].get('created_at', 'N/A')
+        logger.info(f"First extracted receipt date: {first_date}, Last extracted receipt date: {last_date}")
+
+    return all_receipts, items
+
+
 def fetch_api_data(base_url, api_key, time_range):
     """
     Fetches all receipts and items from the API, correctly handling pagination
