@@ -44,7 +44,7 @@ def fetch_api_data(base_url, api_key, time_range):
     for the receipts endpoint. Includes a limit for debugging purposes.
     """
     logger = logging.getLogger(__name__)
-    created_min, created_max = time_range
+    updated_at_min, updated_at_max = time_range
     headers = {"Authorization": f"Bearer {api_key}"}
     
     # --- 1. Fetch Items (Usually not paginated) ---
@@ -60,12 +60,12 @@ def fetch_api_data(base_url, api_key, time_range):
 
     # --- 2. Fetch Receipts with Pagination ---
     all_receipts = []
-    receipts_url = f"{base_url}/receipts?created_min={created_min}&created_max={created_max}"
+    receipts_url = f"{base_url}/receipts?updated_at_min={updated_at_min}&updated_at_max={updated_at_max}"
     
     # --- New: Add a limit for debugging ---
     receipt_limit = 150 
-    
-    logger.info(f"Fetching receipts from {created_min} to {created_max}...")
+
+    logger.info(f"Fetching receipts from {updated_at_min} to {updated_at_max}...")
 
     while receipts_url:
         try:
@@ -160,7 +160,7 @@ def read_last_timestamp(state_file_path):
 
 def update_last_timestamp(state_file_path, receipts):
     """
-    Finds the latest 'created_at' timestamp from a list of new receipts and
+    Finds the latest 'created_at' timestamp from a list of new receipts and 
     updates the state file.
     """
     if not receipts:
@@ -169,9 +169,9 @@ def update_last_timestamp(state_file_path, receipts):
 
     # Find the latest timestamp from the newly fetched data
     try:
-        latest_timestamp = max(r['created_at'] for r in receipts)
+        latest_timestamp = max(r['updated_at'] for r in receipts)
     except (KeyError, TypeError):
-        logging.error("Could not find 'created_at' field in receipts. State file not updated.")
+        logging.error("Could not find 'updated_at' field in receipts. State file not updated.")
         return
 
     state_data = {
