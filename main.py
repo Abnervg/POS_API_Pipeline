@@ -4,6 +4,7 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 import pandas as pd
+from pendulum import datetime
 
 # Import your custom functions at the top
 from etl.extract import get_monthly_time_range, fetch_api_data, save_raw_data, save_last_extraction, read_last_timestamp
@@ -84,6 +85,21 @@ def run_load_historical_data(config):
     local_raw_dir = config['project_dir'] / "data" / "raw"
     load_historical_data_from_local(local_raw_dir, config['s3_bucket'])
     logger.info("--- Finished Historical Data Load ---")
+
+def run_extract_historical_data(config):
+    """Extracts all historical data from the API and saves it locally."""
+    logger = logging.getLogger(__name__)
+    logger.info("--- Starting Historical Data Extraction ---")
+    
+    from etl.extract import fetch_all_historical_data
+    from datetime import datetime
+    all_receipts, all_items = fetch_all_historical_data(config['base_url'], config['api_key'])
+    
+    output_dir = config['project_dir'] / "data" / "raw"
+    file_tag = f"historical_data_up_to_{datetime.now().isoformat(timespec='hours')}"
+    save_raw_data(all_receipts, all_items, output_dir, file_tag)
+    
+    logger.info("--- Finished Historical Data Extraction ---")
 
 def run_check(config):
     """Checks for new data since the last successful extraction."""
@@ -168,6 +184,11 @@ def main():
         if 'file_tag' not in locals():
             file_tag = get_monthly_time_range()[0][:7]
         run_monthly_report(config, file_tag)
+
+    if args.step in  ['full-extract']:
+        from etl.extract import fetch_all_historical_data
+        # Run the full extraction
+        all_receipts, all_items = fetch_all_historical_data(config['base_url'], config['api_key'])
         
 
 if __name__ == "__main__":
