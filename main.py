@@ -92,11 +92,11 @@ def run_extract_historical_data(config):
     logger.info("--- Starting Historical Data Extraction ---")
     
     from etl.extract import fetch_all_historical_data
-    from datetime import datetime
+    from datetime import datetime, timezone
     all_receipts, all_items = fetch_all_historical_data(config['base_url'], config['api_key'])
     
     output_dir = config['project_dir'] / "data" / "raw"
-    file_tag = f"historical_data_up_to_{datetime.now().isoformat(timespec='hours')}"
+    file_tag = f"historical_data_up_to_{datetime.now(timezone.utc).isoformat(timespec='hours')}"
     save_raw_data(all_receipts, all_items, output_dir, file_tag)
     
     logger.info("--- Finished Historical Data Extraction ---")
