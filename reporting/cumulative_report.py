@@ -567,7 +567,7 @@ def generate_cumulative_report(config):
     
     # 5. Generate the final .md summary file
     association_rules_df = find_frequent_item_combinations(exploded_df)
-    create_cumulative_summary_report(cleaned_df, exploded_df, output_dir, association_rules_df)
+    create_cumulative_summary_report(cleaned_df, exploded_df, association_rules_df, output_dir)
 
     logger.info("--- Finished Cumulative Report Generation ---")
 

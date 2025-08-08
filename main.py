@@ -96,7 +96,7 @@ def run_extract_historical_data(config):
     all_receipts, all_items = fetch_all_historical_data(config['base_url'], config['api_key'])
     
     output_dir = config['project_dir'] / "data" / "raw"
-    file_tag = f"historical_data_up_to_{datetime.now(timezone.utc).isoformat(timespec='hours')}"
+    file_tag = f"historical_to_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
     save_raw_data(all_receipts, all_items, output_dir, file_tag)
     
     logger.info("--- Finished Historical Data Extraction ---")
@@ -133,7 +133,7 @@ def main():
     
     # --- SET UP ARGUMENT PARSER ---
     parser = argparse.ArgumentParser(description="Run the ETL and Reporting pipeline.")
-    parser.add_argument('--step', choices=['extract', 'transform', 'load', 'monthly_report', 'cumulative_report', 'check', 'load_historical', 'all'], default='all')
+    parser.add_argument('--step', choices=['extract', 'transform', 'load', 'monthly_report', 'cumulative_report', 'check', 'load_historical', 'full-extract', 'all'], default='all')
     args = parser.parse_args()
 
     # --- LOAD CONFIGURATION ---
@@ -186,10 +186,7 @@ def main():
         run_monthly_report(config, file_tag)
 
     if args.step in  ['full-extract']:
-        from etl.extract import fetch_all_historical_data
-        # Run the full extraction
-        all_receipts, all_items = fetch_all_historical_data(config['base_url'], config['api_key'])
-        
+        run_extract_historical_data(config)
 
 if __name__ == "__main__":
     main()

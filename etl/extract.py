@@ -56,9 +56,9 @@ def fetch_all_historical_data(base_url, api_key, start_date="2020-01-01T00:00:00
 
     # --- Fetch ALL Receipts with Pagination ---
     all_receipts = []
-    # Use the 'created_at_min' parameter to start from the beginning of your history
+    # Use the 'updated_at_min' parameter to start from the beginning of your history
     # The API sorts results from newest to oldest by default.
-    receipts_url = f"{base_url}/receipts?created_at_min={start_date}"
+    receipts_url = f"{base_url}/receipts?updated_at_min={start_date}"
     
     logger.info(f"Starting full historical data extraction from {start_date}...")
 
@@ -168,6 +168,7 @@ def fetch_api_data(base_url, api_key, time_range):
 def save_raw_data(receipts, items, output_dir, file_tag):
     """Saves the raw data to JSON files."""
     output_dir.mkdir(parents=True, exist_ok=True)
+    logging.info("Saving raw data to %s", output_dir)
     
     receipts_path = output_dir / f"receipts_{file_tag}.json"
     with receipts_path.open("w", encoding="utf-8") as f:
