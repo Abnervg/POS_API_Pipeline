@@ -58,19 +58,19 @@ def run_load(processed_df, config, file_tag):
     
     logger.info("--- Finished Load Step ---")
 
-def run_monthly_report(config, file_tag):
+def run_monthly_report(config):
     """Orchestrates the monthly report generation."""
-    logger = logging.getLogger(__name__)
-    logger.info("--- Starting Monthly Report Generation ---")
-
-    # Load the final, curated data for reporting
+    """
+    THIS IS FOR LOADING THE DATA FROM LOCAL
+     # Load the final, curated data for reporting
     curated_dir = config['project_dir'] / "data" / "curated"
     curated_file_path = curated_dir / f"curated_data_{file_tag}.csv"
     if not curated_file_path.exists():
         raise FileNotFoundError(f"Curated data file not found: {curated_file_path}. Run transform/load steps first.")
     
     final_df = pd.read_csv(curated_file_path)
-    generate_monthly_report(final_df, file_tag)
+    """
+    generate_monthly_report(config)
 
 def run_cumulative_report(config):
     logger = logging.getLogger(__name__)

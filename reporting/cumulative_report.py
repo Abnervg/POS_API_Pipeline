@@ -531,41 +531,6 @@ def request_data(bucket_name):
         logger.error(f"An error occurred while loading historical data from S3: {e}")
         raise
 
-def request_monthly_data(bucket_name):
-    """
-    Loads last and current monthly data from the S3 data lake to return a 2 month data dataframe
-
-    Args:
-        s3_bucket (str): The S3 bucket where the curated data is stored.
-
-    Returns:
-        pd.DataFrame: A single DataFrame containing 2 months worht of data.
-    """
-    logger = logging.getLogger(__name__)
-    # Defines current month tag
-    current_month = datetime.now()
-    current_month = current_month.strftime('%Y-%m')
-    current_year = current_month.split("-")
-    
-    # Define the base path for your partitioned data
-    base_s3_path = f"s3://{bucket_name}/curated_data/"
-    
-    logger.info(f"Loding {current_month} and previous month data from S3 path: {base_s3_path}")
-    
-    try:
-        # Use pandas to read the needed files
-        monthly_df = pd.read_parquet(base_s3_path)
-        
-        logger.info(f"Successfully loaded a total of {len(monthly_df)} historical records.")
-        return monthly_df
-        
-    except FileNotFoundError:
-        logger.warning(f"No data found at the specified path: {base_s3_path}. Returning an empty DataFrame.")
-        return pd.DataFrame()
-    except Exception as e:
-        logger.error(f"An error occurred while loading historical data from S3: {e}")
-        raise
-
 
 def plot_combo_choices(df, output_dir):
     """

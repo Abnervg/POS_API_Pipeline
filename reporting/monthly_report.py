@@ -4,11 +4,57 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import numpy as np
 import seaborn as sns
+from datetime import datetime, timezone
+from dateutil.relativedelta import relativedelta
 
 # Import your data preparation functions
 from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced
 from .data_preparation import calculate_beverage_distribution, calculate_mayo_percentages_and_counts, calculate_sales_by_day_of_week
 from .data_preparation import calculate_daily_sales_metrics
+
+# Requests monthly data
+
+def request_monthly_data(bucket_name):
+    """
+    Loads last and current monthly data from the S3 data lake to return a 2 month data dataframe
+
+    Args:
+        s3_bucket (str): The S3 bucket where the curated data is stored.
+
+    Returns:
+        pd.DataFrame: A single DataFrame containing 2 months worht of data.
+    """
+    logger = logging.getLogger(__name__)
+    # Defines current month tag
+    now = datetime.now()
+    current_month = now
+    previous_month = relativedelta(months=1)
+    
+    # Define the base path for your partitioned data
+    s3_paths_to_load = [f"s3://{bucket_name}/curated_data/{current_month.year}/{current_month.month}",
+                        f"s3://{bucket_name}/curated_data/{previous_month.year}/{previous_month.month}"
+                        ]
+    all_dfs = []
+    logger.info(f"Attempting to load data from S3 with path s3://{bucket_name}/curated_data/ for {current_month.year} year and {previous_month.month},{current_month.month} months")
+    for path in s3_paths_to_load:
+        try:
+            logger.info(f"Loading data from {path}")
+            monthly_df = pd.read_parquet(path)
+            all_dfs.append(monthly_df)
+        except FileNotFoundError:
+            logger.warning(f"No data found at the specified path: {path}. This may be expected if no previous month data")
+        except Exception as e:
+            logger.error(f"An error occurred while loading monthly data from S3: {e}")
+            raise
+  
+    # Combine the dataframes
+    if not all_dfs:
+        logger.warning("No data was found for the last two months")
+        return pd.DataFrame()
+    combined_df = pd.concat(all_dfs,ignore_index=True)
+
+    logger.info(f"Successfully loaded a total of {len(combined_df)} records from the last two months.")
+    return combined_df 
 
 # --- Plotting Functions ---
 
@@ -226,19 +272,23 @@ def plot_daily_sales_trends(df, output_dir):
 
 # --- Main Orchestrator Function for this Module ---
 
-def generate_monthly_report(df, config, file_tag):
+def generate_monthly_report(config):
     """
     Orchestrates the entire monthly report generation process.
     """
     logger = logging.getLogger(__name__)
     logger.info("--- Starting Monthly Report Generation ---")
     
+    # Request data
+    monthly_df = request_monthly_data(config)
+
     # 1. Prepare the data for reporting
-    cleaned_df = clean_data_for_reporting(df)
+    cleaned_df = clean_data_for_reporting(monthly_df)
     final_df = explode_combo_items_advanced(cleaned_df)
     
     # 2. Define output directory for this month's report
-    report_output_dir = config['project_dir'] / "reports" / f"monthly_report_{file_tag}"
+    now = datetime.now()
+    report_output_dir = config['project_dir'] / "reports" / f"{now.year}_monthly_report_{now.month}"
     
     # 3. Generate all plots
 
