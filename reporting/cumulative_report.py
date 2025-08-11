@@ -9,7 +9,7 @@ import logging
 from mlxtend.frequent_patterns import apriori, association_rules
 from mlxtend.preprocessing import TransactionEncoder
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 
 #Import cleaning functions
 from reporting.data_preparation import clean_data_for_reporting, explode_combo_items_advanced
@@ -157,30 +157,38 @@ def find_frequent_item_combinations(df):
 
 def analyze_combo_choices(df):
     """
-    Analyzes the choices made within combo items.
+    Analyzes the choices made within combo items, returning standardized names.
 
     Args:
         df (pd.DataFrame): The cleaned historical data (BEFORE exploding combos).
 
     Returns:
-        dict: A dictionary where keys are combo names and values are the counts of each choice.
+        dict: A dictionary where keys are combo names and values are the counts of each standardized choice.
     """
     logger = logging.getLogger(__name__)
     logger.info("Analyzing choices within combo items...")
 
     combo_df = df[df['item_name'].str.contains('Combo', case=False, na=False)].copy()
+
+    combo_df_mods = combo_df['modifiers'].str.contains('Mayonesa', case=False, na=False)
+    combo_df_mods['mayo_type'] = combo_df_mods['modifiers'].str.extract(r'Mayonesa\((.*?)\)', case = False, na = False).copy()
+
     
     combo_analysis = {}
 
     for combo_name in combo_df['item_name'].unique():
-        # Filter for just this specific combo
         specific_combo_df = combo_df[combo_df['item_name'] == combo_name]
-        
-        # This will hold all the choices made for this combo
         all_choices = []
-        
-        # Define the keys we care about (the choices)
         choice_keys = ['hamburguesa', 'refresco', 'papas', 'malteada']
+        
+        # --- This is the new standardization helper ---
+        def get_standard_name(name):
+            if not isinstance(name, str): return name
+            name_lower = name.lower()
+            if 'smash' in name_lower: return 'Smash Burger'
+            if 'chiken' in name_lower or 'chicken' in name_lower: return 'Chicken Burger'
+            if 'coca' in name_lower: return 'Coca-Cola'
+            return name # Return original if no rule matches
 
         def extract_choices(modifier_string):
             if not isinstance(modifier_string, str): return []
@@ -190,23 +198,159 @@ def analyze_combo_choices(df):
                 if any(item_key in key for item_key in choice_keys):
                     match = re.search(r'\((.*?)\)', part)
                     if match:
-                        choices.append(match.group(1).strip())
+                        raw_choice = match.group(1).strip()
+                        # --- Apply the standardization immediately ---
+                        standardized_choice = get_standard_name(raw_choice)
+                        choices.append(standardized_choice)
             return choices
 
-        # Apply the function to every modifier string for this combo
         list_of_choices = specific_combo_df['modifiers'].apply(extract_choices)
         
-        # Flatten the list of lists into a single list
         for sublist in list_of_choices:
             all_choices.extend(sublist)
             
-        # Count the occurrences of each choice
         combo_analysis[combo_name] = Counter(all_choices)
 
     return combo_analysis
 
+def analyze_combo_choices_with_mayo(df):
+    """
+    Analyzes choices within combos, including the specific mayonnaise type
+    associated with each burger choice.
+
+    Args:
+        df (pd.DataFrame): The cleaned historical data (BEFORE exploding combos).
+
+    Returns:
+        dict: A nested dictionary with counts for main choices and sub-choices (mayo).
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Analyzing combo choices, including mayonnaise modifiers...")
+
+    combo_df = df[df['item_name'].str.contains('Combo', case=False, na=False)].copy()
+    
+    # This will hold the final analysis for all combos
+    final_analysis = {}
+
+    def get_standard_name(name):
+        if not isinstance(name, str): return name
+        name_lower = name.lower()
+        if 'smash' in name_lower: return 'Smash Burger'
+        if 'chiken' in name_lower or 'chicken' in name_lower: return 'Chicken Burger'
+        if 'coca' in name_lower: return 'Coca-Cola'
+        return name
+
+    for combo_name in combo_df['item_name'].unique():
+        specific_combo_df = combo_df[combo_df['item_name'] == combo_name]
+        
+        # Use defaultdict for easier counting
+        main_choices_counter = Counter()
+        sub_choices_counter = defaultdict(Counter)
+
+        for modifier_string in specific_combo_df['modifiers'].dropna():
+            all_modifiers = modifier_string.split(';')
+            
+            # Find all burger and drink choices
+            main_item_mods = [m for m in all_modifiers if 'hamburguesa' in m.lower() or 'refresco' in m.lower()]
+            mayo_mods = [m for m in all_modifiers if 'mayonesa' in m.lower()]
+            
+            burger_choices_in_receipt = []
+
+            # Process main items first
+            for item_mod in main_item_mods:
+                match = re.search(r'\((.*?)\)', item_mod)
+                if match:
+                    raw_choice = match.group(1).strip()
+                    standardized_choice = get_standard_name(raw_choice)
+                    main_choices_counter[standardized_choice] += 1
+                    
+                    # If it's a burger, keep track of it for mayo association
+                    if 'burger' in standardized_choice.lower():
+                        burger_choices_in_receipt.append(standardized_choice)
+
+            # Associate mayos with the burgers found in this specific receipt
+            for i, mayo_mod in enumerate(mayo_mods):
+                if i < len(burger_choices_in_receipt): # Ensure we don't go out of bounds
+                    burger_type = burger_choices_in_receipt[i]
+                    mayo_match = re.search(r'\((.*?)\)', mayo_mod)
+                    if mayo_match:
+                        mayo_type = mayo_match.group(1).strip()
+                        sub_choices_counter[burger_type][mayo_type] += 1
+
+        final_analysis[combo_name] = {
+            "main_choices": dict(main_choices_counter),
+            "sub_choices": {k: dict(v) for k, v in sub_choices_counter.items()}
+        }
+
+    return final_analysis
 
 #-----Define plotting functions to visualize the data----
+
+# Plots the combo analysis using mayo mods
+def plot_combo_analysis_with_mayo(df, output_dir):
+    """
+    Generates detailed plots for combo choices, including sub-plots for
+    mayonnaise distribution per burger.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating detailed plots for combo choices...")
+
+    # 1. Get the detailed analysis data
+    combo_analysis_data = analyze_combo_choices_with_mayo(df)
+
+    # 2. Loop through each combo and create a plot for it
+    for combo_name, analysis in combo_analysis_data.items():
+        main_choices = analysis.get("main_choices", {})
+        sub_choices = analysis.get("sub_choices", {})
+
+        if not main_choices:
+            continue
+
+        # Create DataFrames for plotting
+        main_choices_df = pd.DataFrame(main_choices.items(), columns=['Choice', 'Count']).sort_values('Count', ascending=False)
+        
+        # Create a figure with two subplots
+        fig, axes = plt.subplots(1, 2, figsize=(20, 8))
+        fig.suptitle(f"Analysis for '{combo_name}'", fontsize=20)
+
+        # --- Plot 1: Main Item Choices ---
+        sns.barplot(ax=axes[0], data=main_choices_df, x='Choice', y='Count', hue='Choice', palette='rocket', legend=False)
+        axes[0].set_title('Popularity of Main Items', fontsize=14)
+        axes[0].set_xlabel('Item Choice')
+        axes[0].set_ylabel('Number of Times Chosen')
+        axes[0].tick_params(axis='x', rotation=45)
+        axes[0].bar_label(axes[0].containers[0])
+
+        # --- Plot 2: Mayonnaise Choices per Burger ---
+        if sub_choices:
+            # Convert the nested sub_choices dict to a plottable DataFrame
+            sub_choices_list = []
+            for burger, mayo_counts in sub_choices.items():
+                for mayo, count in mayo_counts.items():
+                    sub_choices_list.append([burger, mayo, count])
+            sub_choices_df = pd.DataFrame(sub_choices_list, columns=['Burger', 'Mayo', 'Count'])
+
+            sns.barplot(ax=axes[1], data=sub_choices_df, x='Burger', y='Count', hue='Mayo', palette='viridis')
+            axes[1].set_title('Mayonnaise Preference per Burger', fontsize=14)
+            axes[1].set_xlabel('Burger Choice')
+            axes[1].set_ylabel('Count')
+            axes[1].tick_params(axis='x', rotation=0)
+        else:
+            axes[1].text(0.5, 0.5, 'No Mayonnaise Modifiers Found', ha='center', va='center')
+            axes[1].set_title('Mayonnaise Preference per Burger', fontsize=14)
+
+
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
+        
+        # Save the combined plot
+        safe_filename = re.sub(r'[^a-zA-Z0-9_]', '', combo_name.replace(' ', '_')).lower()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        plot_path = output_dir / f"combo_analysis_{safe_filename}.png"
+        plt.savefig(plot_path)
+        plt.close()
+
+        logger.info(f"Detailed combo analysis plot saved to: {plot_path}")
+
 
 # Produce a bar chart comparing weekday vs. weekend performance
 def plot_weekday_vs_weekend_comparison(df, output_dir):
@@ -563,7 +707,8 @@ def generate_cumulative_report(config):
     plot_cumulative_sales_trend(cleaned_df, output_dir)
     plot_hourly_sales_heatmap(cleaned_df, output_dir)
     plot_weekday_vs_weekend_comparison(cleaned_df, output_dir)
-    plot_combo_choices(cleaned_df, output_dir)
+    #plot_combo_choices(cleaned_df, output_dir)
+    plot_combo_analysis_with_mayo(cleaned_df,output_dir)
     
     # 5. Generate the final .md summary file
     association_rules_df = find_frequent_item_combinations(exploded_df)

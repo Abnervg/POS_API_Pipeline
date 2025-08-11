@@ -38,7 +38,6 @@ def clean_data_for_reporting(df):
     # 3. Feature Engineering: Create new columns for analysis
     df['day_of_week'] = df['datetime'].dt.day_name()
     df['hour_of_day'] = df['datetime'].dt.hour
-    
     logger.info("Data cleaning and feature engineering complete.")
     return df
 
