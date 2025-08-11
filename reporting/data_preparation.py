@@ -142,9 +142,18 @@ def calculate_mayo_percentages_and_counts(df):
 
     mayo_burgers = all_burgers[all_burgers['modifiers'].str.contains("Mayonesa", case=False, na=False)].copy()
 
+
     # Extract the specific mayo type
 
     mayo_burgers['mayo_type'] = mayo_burgers['modifiers'].str.extract(r'Mayonesa\((.*?)\)')
+
+    def standardize_mayotypes(df):
+        for mod in df["mayo_type"]:
+            lowed = mod.lower()
+            if lowed.str.contains(
+                "sin mayonesa"):
+                return "Natural"
+    mayo_burgers.apply(standardize_mayotypes)
 
     # Get the count of each mayo type per burger
 
