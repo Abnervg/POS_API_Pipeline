@@ -5,6 +5,40 @@ import re
 
 
 # Data preparation functions for reporting
+
+def calculate_sales_by_day_for_comparison(df):
+    """
+    Prepares data for a two-month comparison by grouping sales by month,
+    day of the week, and order category.
+    """
+    df = df.copy()
+    df['shifted_time'] = pd.to_datetime(df['shifted_time'], errors='coerce')
+    df.dropna(subset=['shifted_time'], inplace=True)
+    
+    # Create necessary columns for grouping
+    df['month'] = df['shifted_time'].dt.strftime('%Y-%m')
+    df['day_of_week'] = df['shifted_time'].dt.day_name()
+    
+    # Convert 'day_of_week' to an ordered Categorical type to ensure correct sorting
+    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    df['day_of_week'] = pd.Categorical(df['day_of_week'], categories=day_order, ordered=True)
+
+    # Create Order Type Categories
+    def assign_order_category(order_type):
+        if not isinstance(order_type, str): return 'Otro'
+        if 'Mesa' in order_type: return 'Restaurante'
+        if 'domicilio' in order_type.lower(): return 'A domicilio'
+        if 'llevar' in order_type.lower(): return 'Para llevar'
+        return 'Otro'
+
+    df['order_category'] = df['order_type'].apply(assign_order_category)
+    
+    # Group by all three columns and count unique receipts
+    categorized_sales = df.groupby(['month', 'day_of_week', 'order_category'], observed=False)['receipt_number'].nunique().reset_index()
+    categorized_sales.rename(columns={'receipt_number': 'count'}, inplace=True)
+    
+    return categorized_sales
+
 def clean_data_for_reporting(df):
     """
     Cleans the DataFrame for reporting purposes.

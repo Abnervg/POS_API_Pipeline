@@ -11,6 +11,7 @@ from dateutil.relativedelta import relativedelta
 from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced
 from .data_preparation import calculate_beverage_distribution, calculate_mayo_percentages_and_counts, calculate_sales_by_day_of_week
 from .data_preparation import calculate_daily_sales_metrics
+from .data_preparation import calculate_sales_by_day_for_comparison
 
 # Requests monthly data
 
@@ -268,6 +269,52 @@ def plot_daily_sales_trends(df, output_dir):
 
     logger.info(f"Daily sales trends plot saved to: {plot_path}")
 
+# Plot monthly comparisons
+
+def plot_monthly_comparison_by_weekday(df, output_dir):
+    """
+    Generates a comparative line plot showing sales traffic by day of the week
+    for two different months.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating monthly comparison plot for sales by weekday...")
+
+    # 1. Get the prepared data
+    comparison_data = calculate_sales_by_day_for_comparison(df)
+
+    # 2. Create the plot
+    plt.figure(figsize=(14, 8))
+    
+    # Use hue for the month and style for the order category
+    ax = sns.lineplot(
+        data=comparison_data,
+        x='day_of_week',
+        y='count',
+        hue='month',          # Separates lines by month
+        style='order_category', # Creates different dashing for order types
+        palette=['gray', 'black'], # Sets the colors for each month
+        markers=True,
+        dashes=True,
+        linewidth=2
+    )
+
+    # 3. Add titles and labels
+    plt.title('Monthly Comparison of Sales Traffic by Day', fontsize=18)
+    plt.xlabel('Day of the Week', fontsize=12)
+    plt.ylabel('Number of Unique Receipts', fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend(title='Month & Order Type')
+    plt.tight_layout()
+
+    # 4. Save the plot
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "monthly_comparison_by_weekday.png"
+    plt.savefig(plot_path)
+    plt.close()
+
+    logger.info(f"Monthly comparison plot saved to: {plot_path}")
+
+
 
 
 # --- Main Orchestrator Function for this Module ---
@@ -288,7 +335,7 @@ def generate_monthly_report(config):
     
     # 2. Define output directory for this month's report
     now = datetime.now()
-    report_output_dir = config['project_dir'] / "reports" / f"{now.year}_monthly_report_{now.month}"
+    report_output_dir = config['project_dir'] / "reports" / f"monthly_report_{now.year}_{now.month}"
     
     # 3. Generate all plots
 
