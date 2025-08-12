@@ -197,3 +197,28 @@ def time_slots(cleaned_data):
     
     return cleaned_data
 
+def run_transform(receipts, items):
+    """
+    Orchestrates the entire data transformation process on the provided data.
+    
+    Args:
+        receipts (list): A list of receipt dictionaries.
+        items (list): A list of item dictionaries.
+        
+    Returns:
+        pd.DataFrame: The final, transformed DataFrame.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("--- Starting Transform Step ---")
+    
+    # The function receives the raw data lists directly
+    json_files = (receipts, items)
+    
+    # Call each of your transformation steps in order
+    flat_table = flattening_table_mine(json_files)
+    flat_table = homogenize_order_types(flat_table)
+    flat_table = time_slots(flat_table)
+    
+    logger.info("--- Finished Transform Step ---")
+    return flat_table
+
