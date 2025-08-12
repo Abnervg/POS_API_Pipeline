@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 import time
 from pathlib import Path
+import boto3
+from botocore.exceptions import ClientError
 
 # Setup basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -248,6 +250,50 @@ def update_last_timestamp(state_file_path, receipts):
         logging.info(f"State file updated with new timestamp: {latest_timestamp}")
     except IOError as e:
         logging.error(f"Failed to write to state file: {e}")
+
+def get_latest_timestamp_from_s3(s3_bucket):
+    """
+    Finds the latest timestamp from the most recent monthly file in S3.
+    """
+    logger = logging.getLogger(__name__)
+    s3_client = boto3.client('s3')
+    
+    try:
+        # List all objects in the curated data folder
+        paginator = s3_client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=s3_bucket, Prefix='curated_data/')
+        
+        all_keys = []
+        for page in pages:
+            if "Contents" in page:
+                for obj in page['Contents']:
+                    if obj['Key'].endswith('.parquet'):
+                        all_keys.append(obj['Key'])
+        
+        if not all_keys:
+            logger.warning("No data found in S3. Will perform a full extraction for the current month.")
+            # This will trigger the default start-of-month logic in your extract function
+            return None 
+
+        # Find the most recent file (lexicographically)
+        latest_file_key = max(all_keys)
+        s3_path = f"s3://{s3_bucket}/{latest_file_key}"
+        
+        logger.info(f"Reading latest data file from S3: {s3_path}")
+        latest_df = pd.read_parquet(s3_path)
+        
+        # Find the max timestamp in that file
+        latest_timestamp = pd.to_datetime(latest_df['shifted_time']).max()
+        
+        # Format it for the API
+        return latest_timestamp.tz_localize('UTC').isoformat(timespec="milliseconds").replace('+00:00', 'Z')
+
+    except ClientError as e:
+        logger.error(f"Failed to access S3 to get latest timestamp: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"An error occurred while getting the latest timestamp from S3: {e}")
+        return None
 
 
 def fetch_incremental_data(base_url, api_key, last_timestamp):
