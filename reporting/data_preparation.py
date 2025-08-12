@@ -26,12 +26,20 @@ def calculate_sales_by_day_for_comparison(df):
     # Create Order Type Categories
     def assign_order_category(order_type):
         if not isinstance(order_type, str): return 'Otro'
-        if 'Mesa' in order_type: return 'Restaurante'
+        if 'mesa' in order_type.lower(): return 'Restaurante'
         if 'domicilio' in order_type.lower(): return 'A domicilio'
         if 'llevar' in order_type.lower(): return 'Para llevar'
         return 'Otro'
 
     df['order_category'] = df['order_type'].apply(assign_order_category)
+
+    # DEBUGGING: Print unique order types and their categories
+    # Filter for the 'Otro' category and find the unique original values
+    #otro_values = df[df['order_category'] == 'Otro']['order_type'].unique()
+
+    # Print the results
+    #print("The following order_type values are being categorized as 'Otro':")
+    #print(otro_values)
     
     # Group by all three columns and count unique receipts
     categorized_sales = df.groupby(['month', 'day_of_week', 'order_category'], observed=False)['receipt_number'].nunique().reset_index()
@@ -164,6 +172,36 @@ def explode_combo_items_advanced(df):
     return final_df
 
 #Helper function to plot mayonnaise preferences
+def calculate_mayo_distribution_by_month(df):
+    """
+    Calculates the count of each mayonnaise type for each burger, grouped by month.
+    """
+    df = df.copy()
+    df['shifted_time'] = pd.to_datetime(df['shifted_time'], errors='coerce')
+    df.dropna(subset=['shifted_time'], inplace=True)
+
+    # 1. Filter for burgers and then for Mayonesa modifiers
+    all_burgers = df[df['item_name'].str.contains("Burger|Smash", case=False, na=False)]
+    mayo_burgers = all_burgers[all_burgers['modifiers'].str.contains("Mayonesa", case=False, na=False)].copy()
+
+    # 2. Extract the specific mayo type
+    mayo_burgers['mayo_type'] = mayo_burgers['modifiers'].str.extract(r'Mayonesa\((.*?)\)')
+    
+    # 3. Standardize the mayo types
+    def standardize_mayo(mayo_name):
+        if isinstance(mayo_name, str) and "sin mayonesa" in mayo_name.lower():
+            return "Natural"
+        return mayo_name
+        
+    mayo_burgers['mayo_type'] = mayo_burgers['mayo_type'].apply(standardize_mayo)
+
+    # 4. Create a 'month' column for grouping
+    mayo_burgers['month'] = mayo_burgers['shifted_time'].dt.strftime('%Y-%m')
+
+    # 5. Group by month, burger name, and mayo type to get the counts
+    mayo_counts = mayo_burgers.groupby(['month', 'item_name', 'mayo_type']).size().reset_index(name='count')
+    
+    return mayo_counts
 
 def calculate_mayo_percentages_and_counts(df):
     """

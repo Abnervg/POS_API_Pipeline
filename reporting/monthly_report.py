@@ -12,6 +12,7 @@ from .data_preparation import clean_data_for_reporting, explode_combo_items_adva
 from .data_preparation import calculate_beverage_distribution, calculate_mayo_percentages_and_counts, calculate_sales_by_day_of_week
 from .data_preparation import calculate_daily_sales_metrics
 from .data_preparation import calculate_sales_by_day_for_comparison
+from .data_preparation import calculate_mayo_distribution_by_month
 
 # Requests monthly data
 
@@ -58,6 +59,44 @@ def request_monthly_data(bucket_name):
     return combined_df 
 
 # --- Plotting Functions ---
+
+def plot_monthly_mayo_comparison(df, output_dir):
+    """
+    Generates a grouped bar chart comparing mayonnaise preferences between months.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating monthly comparison plot for mayonnaise preference...")
+
+    # 1. Get the prepared data
+    comparison_data = calculate_mayo_distribution_by_month(df)
+
+    # 2. Create the plot using Seaborn's catplot for easy faceting
+    g = sns.catplot(
+        data=comparison_data,
+        x='item_name',
+        y='count',
+        hue='mayo_type',
+        col='month',  # This creates a separate subplot for each month
+        kind='bar',
+        palette='tab10',
+        height=6,
+        aspect=1.2
+    )
+
+    # 3. Add titles and labels
+    g.fig.suptitle('Monthly Comparison of Mayonnaise Preference per Burger', y=1.03, fontsize=16)
+    g.set_axis_labels("Burger Type", "Number of Items Sold")
+    g.set_titles("Month: {col_name}")
+    g.legend.set_title("Mayo Type")
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+
+    # 4. Save the plot
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "monthly_mayo_preference_comparison.png"
+    plt.savefig(plot_path)
+    plt.close()
+
+    logger.info(f"Monthly mayo comparison plot saved to: {plot_path}")
 
 
 def plot_beverage_distribution(df, output_dir):
@@ -282,7 +321,10 @@ def plot_monthly_comparison_by_weekday(df, output_dir):
     # 1. Get the prepared data
     comparison_data = calculate_sales_by_day_for_comparison(df)
 
-    # 2. Create the plot
+    # 2. Filter out the 'Otro' category before plotting
+    comparison_data = comparison_data[comparison_data['order_category'] != 'Otro']
+
+    # 3. Create the plot
     plt.figure(figsize=(14, 8))
     
     # Use hue for the month and style for the order category
@@ -292,13 +334,14 @@ def plot_monthly_comparison_by_weekday(df, output_dir):
         y='count',
         hue='month',          # Separates lines by month
         style='order_category', # Creates different dashing for order types
-        palette=['gray', 'black'], # Sets the colors for each month
+        palette=['red', 'red'], # Sets the colors for each month
         markers=True,
+        markersize=10,
         dashes=True,
         linewidth=2
     )
 
-    # 3. Add titles and labels
+    # 4. Add titles and labels
     plt.title('Monthly Comparison of Sales Traffic by Day', fontsize=18)
     plt.xlabel('Day of the Week', fontsize=12)
     plt.ylabel('Number of Unique Receipts', fontsize=12)
@@ -306,7 +349,7 @@ def plot_monthly_comparison_by_weekday(df, output_dir):
     plt.legend(title='Month & Order Type')
     plt.tight_layout()
 
-    # 4. Save the plot
+    # 5. Save the plot
     output_dir.mkdir(parents=True, exist_ok=True)
     plot_path = output_dir / "monthly_comparison_by_weekday.png"
     plt.savefig(plot_path)
@@ -344,6 +387,7 @@ def generate_monthly_report(config):
     #plot_beverage_distribution(final_df, report_output_dir)
     #plot_sales_by_day_of_week(final_df, report_output_dir)
     #plot_daily_sales_trends(final_df, report_output_dir)
+    plot_monthly_mayo_comparison(final_df, report_output_dir)
     plot_monthly_comparison_by_weekday(final_df, report_output_dir)
 
     # (Future step: Call a function to generate the .md summary file here)

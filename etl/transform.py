@@ -148,7 +148,7 @@ def homogenize_order_types_optimized(df):
     ]
     
     # 3. Apply the conditions.
-    # If no condition is met, it uses the original value as the default.
+    # If no condition is met, it returns the original value as the default.
     cleaned_df["order_type"] = np.select(
         conditions, 
         choices, 
