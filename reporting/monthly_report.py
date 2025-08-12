@@ -28,15 +28,15 @@ def request_monthly_data(bucket_name):
     logger = logging.getLogger(__name__)
     # Defines current month tag
     now = datetime.now()
-    current_month = now
-    previous_month = relativedelta(months=1)
-    
+    last_month = now - relativedelta(months=1)
+    previous_month = last_month - relativedelta(months=1)
+
     # Define the base path for your partitioned data
-    s3_paths_to_load = [f"s3://{bucket_name}/curated_data/{current_month.year}/{current_month.month}",
-                        f"s3://{bucket_name}/curated_data/{previous_month.year}/{previous_month.month}"
+    s3_paths_to_load = [f"s3://{bucket_name}/curated_data/year={last_month.year}/month={last_month.month:02d}/",
+                        f"s3://{bucket_name}/curated_data/year={previous_month.year}/month={previous_month.month:02d}/"
                         ]
     all_dfs = []
-    logger.info(f"Attempting to load data from S3 with path s3://{bucket_name}/curated_data/ for {current_month.year} year and {previous_month.month},{current_month.month} months")
+    logger.info(f"Attempting to load data from S3 with path s3://{bucket_name}/curated_data/ for {last_month.year} year and {previous_month.month:02d},{last_month.month:02d} months")
     for path in s3_paths_to_load:
         try:
             logger.info(f"Loading data from {path}")
@@ -327,7 +327,8 @@ def generate_monthly_report(config):
     logger.info("--- Starting Monthly Report Generation ---")
     
     # Request data
-    monthly_df = request_monthly_data(config)
+    bucket_name = config['s3_bucket']
+    monthly_df = request_monthly_data(bucket_name)
 
     # 1. Prepare the data for reporting
     cleaned_df = clean_data_for_reporting(monthly_df)
@@ -335,15 +336,16 @@ def generate_monthly_report(config):
     
     # 2. Define output directory for this month's report
     now = datetime.now()
-    report_output_dir = config['project_dir'] / "reports" / f"monthly_report_{now.year}_{now.month}"
+    report_output_dir = config['project_dir'] / "reports" / f"monthly_report_{now.year}_{now.month:02d}"
     
     # 3. Generate all plots
 
-    plot_stacked_counts_with_percentage_labels(final_df, report_output_dir)
-    plot_beverage_distribution(final_df, report_output_dir)
-    plot_sales_by_day_of_week(final_df, report_output_dir)
-    plot_daily_sales_trends(final_df, report_output_dir)
-    
+    #plot_stacked_counts_with_percentage_labels(final_df, report_output_dir)
+    #plot_beverage_distribution(final_df, report_output_dir)
+    #plot_sales_by_day_of_week(final_df, report_output_dir)
+    #plot_daily_sales_trends(final_df, report_output_dir)
+    plot_monthly_comparison_by_weekday(final_df, report_output_dir)
+
     # (Future step: Call a function to generate the .md summary file here)
     
     logger.info(f"--- Monthly Report generated successfully in: {report_output_dir} ---")

@@ -20,7 +20,7 @@ def calculate_sales_by_day_for_comparison(df):
     df['day_of_week'] = df['shifted_time'].dt.day_name()
     
     # Convert 'day_of_week' to an ordered Categorical type to ensure correct sorting
-    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    day_order = ['Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     df['day_of_week'] = pd.Categorical(df['day_of_week'], categories=day_order, ordered=True)
 
     # Create Order Type Categories
