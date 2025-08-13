@@ -10,9 +10,7 @@ from dateutil.relativedelta import relativedelta
 # Import your data preparation functions
 from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced
 from .data_preparation import calculate_beverage_distribution, calculate_mayo_percentages_and_counts, calculate_sales_by_day_of_week
-from .data_preparation import calculate_daily_sales_metrics
-from .data_preparation import calculate_sales_by_day_for_comparison
-from .data_preparation import calculate_mayo_distribution_by_month
+from .data_preparation import calculate_daily_sales_metrics, calculate_sales_by_day_for_comparison, calculate_mayo_distribution_by_month, calculate_beverage_distribution_by_month
 
 # Requests monthly data
 
@@ -98,6 +96,52 @@ def plot_monthly_mayo_comparison(df, output_dir):
 
     logger.info(f"Monthly mayo comparison plot saved to: {plot_path}")
 
+def plot_monthly_beverage_comparison(df, output_dir):
+    """
+    Creates a faceted bar chart to compare beverage distribution between months,
+    ensuring correct alignment.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating monthly comparison plot for beverage distribution...")
+
+    # 1. Get the prepared data
+    comparison_data = calculate_beverage_distribution_by_month(df)
+
+    # 2. Create the plot using Seaborn's catplot
+    # --- FIX: Use the 'order' parameter to enforce consistent alignment ---
+    g = sns.catplot(
+        data=comparison_data,
+        x='category',
+        y='count',
+        hue='item_name',
+        col='month',
+        kind='bar',
+        palette='tab10',
+        height=7,
+        aspect=1.1,
+        order=['Aguas', 'Malteadas', 'Refrescos'], # This ensures alignment
+        legend=False # We will create a custom legend
+    )
+
+    # 3. Add titles and labels
+    g.fig.suptitle('Monthly Comparison of Beverage Sales', y=1.03, fontsize=18)
+    g.set_axis_labels("Beverage Category", "Number of Items Sold")
+    g.set_titles("Month: {col_name}")
+    
+    # --- FIX: Move the legend outside the plot area ---
+    plt.legend(title='Beverage Type', bbox_to_anchor=(1.02, 1), loc='upper left')
+    
+    # Adjust layout to make space for the legend
+    plt.tight_layout(rect=[0, 0, 0.85, 0.97])
+
+    # 4. Save the plot
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "monthly_beverage_comparison.png"
+    plt.savefig(plot_path)
+    plt.close()
+
+    logger.info(f"Monthly beverage comparison plot saved to: {plot_path}")
+
 
 def plot_beverage_distribution(df, output_dir):
     """
@@ -113,69 +157,56 @@ def plot_beverage_distribution(df, output_dir):
     counts_pivot = data_for_plot.pivot(index='category', columns='item_name', values='count').fillna(0)
     percentages_pivot = data_for_plot.pivot(index='category', columns='item_name', values='percentage').fillna(0)
 
-    # 3. Create the plot with the 'tab10' colormap
+    # 3. Create the plot
     ax = counts_pivot.plot(kind='bar', stacked=True, figsize=(12, 8), width=0.6, colormap='tab10')
 
-    # 4. Add percentage labels by looking up the correct percentage value
+    # 4. Add percentage labels
     for container in ax.containers:
-        # Get the item name for the current container (e.g., 'Coca Cola')
         item_name = container.get_label()
-        
         labels = []
         for i, bar in enumerate(container):
-            # Get the category name for the current bar (e.g., 'Refrescos y Aguas')
             category_name = counts_pivot.index[i]
-            
             try:
-                # Look up the percentage from the percentages_pivot DataFrame
                 percentage = percentages_pivot.loc[category_name, item_name]
-                if percentage > 5: # Only show label if segment is large enough
+                if percentage > 5:
                     labels.append(f'{percentage:.0f}%')
                 else:
                     labels.append('')
             except KeyError:
-                # This handles cases where a combination doesn't exist
                 labels.append('')
-                
         ax.bar_label(container, labels=labels, label_type='center', color='white', weight='bold')
 
-    # --- 5. Create Custom Grouped Legends ---
+    # 5. Create Custom Grouped Legends (this logic is dynamic)
     handles, labels = ax.get_legend_handles_labels()
     item_to_category = pd.Series(data_for_plot.category.values, index=data_for_plot.item_name).to_dict()
     
-    # Create a mapping of category to its legend items (handle and label)
     category_legends = {cat: [] for cat in data_for_plot['category'].unique()}
     for handle, label in zip(handles, labels):
         category = item_to_category.get(label)
         if category:
             category_legends[category].append((handle, label))
             
-    # Remove the default legend
     if ax.get_legend():
         ax.get_legend().remove()
 
-    # Add a new, custom legend for each category
-    legend_y_start = 1.02 # Starting vertical position for the first legend
+    legend_y_start = 1.02
     for category, items in category_legends.items():
         if not items: continue
-        
-        # Unzip the handles and labels for the current category
         cat_handles, cat_labels = zip(*items)
-        
         legend = ax.legend(cat_handles, cat_labels, title=f'-- {category} --', 
                            bbox_to_anchor=(1.02, legend_y_start), 
                            loc='upper left', 
                            title_fontsize='12',
                            fontsize='10')
         ax.add_artist(legend)
-        legend_y_start -= 0.3 # Adjust this value to change spacing between legends
+        legend_y_start -= 0.3
 
     # 6. Add titles and labels
     plt.title('Beverage Sales Distribution', fontsize=16)
     plt.xlabel('Beverage Category', fontsize=12)
     plt.ylabel('Number of Items Sold', fontsize=12)
     plt.xticks(rotation=0)
-    plt.tight_layout(rect=[0, 0, 0.80, 1]) # Adjust layout to make space for legends
+    plt.tight_layout(rect=[0, 0, 0.80, 1])
 
     # 7. Save the plot
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -334,7 +365,7 @@ def plot_monthly_comparison_by_weekday(df, output_dir):
         y='count',
         hue='month',          # Separates lines by month
         style='order_category', # Creates different dashing for order types
-        palette=['red', 'red'], # Sets the colors for each month
+        palette=['red', 'blue'], # Sets the colors for each month
         markers=True,
         markersize=10,
         dashes=True,
@@ -387,6 +418,7 @@ def generate_monthly_report(config):
     #plot_beverage_distribution(final_df, report_output_dir)
     #plot_sales_by_day_of_week(final_df, report_output_dir)
     #plot_daily_sales_trends(final_df, report_output_dir)
+    plot_monthly_beverage_comparison(final_df, report_output_dir)
     plot_monthly_mayo_comparison(final_df, report_output_dir)
     plot_monthly_comparison_by_weekday(final_df, report_output_dir)
 

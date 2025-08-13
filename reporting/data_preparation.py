@@ -263,7 +263,7 @@ def calculate_beverage_distribution(df):
             return 'Aguas'
         else:
             return 'Refrescos'
-
+    
     beverages_df['category'] = beverages_df['item_name'].apply(assign_category)
 
     # 3. Get the count of each item within each category
@@ -275,6 +275,38 @@ def calculate_beverage_distribution(df):
     
     return beverage_counts
 
+def calculate_beverage_distribution_by_month(df):
+    """
+    Categorizes beverages and calculates the raw count for each item,
+    grouped by month.
+    """
+    # 1. Filter for all beverage items
+    beverage_keywords = "Refresco|Malteada|Coca|Squirt|Agua|Manzanita"
+    beverages_df = df[df['item_name'].str.contains(beverage_keywords, case=False, na=False)].copy()
+
+    # --- Standardization Step for Water ---
+    def standardize_beverage_names(name):
+        if not isinstance(name, str): return name
+        name_lower = name.lower()
+        if 'mineral' in name_lower:
+            return 'Agua Mineral'
+        if 'natural' in name_lower or 'embotellada' in name_lower:
+            return 'Agua Embotellada'
+        return name
+    beverages_df['item_name'] = beverages_df['item_name'].apply(standardize_beverage_names)
+    
+    # 2. Create 'month' and 'category' columns
+    beverages_df['month'] = pd.to_datetime(beverages_df['shifted_time']).dt.strftime('%Y-%m')
+    def assign_category(item_name):
+        if 'malteada' in item_name.lower(): return 'Malteadas'
+        elif 'agua' in item_name.lower(): return 'Aguas'
+        else: return 'Refrescos'
+    beverages_df['category'] = beverages_df['item_name'].apply(assign_category)
+
+    # 3. Get the counts for existing data
+    beverage_counts = beverages_df.groupby(['month', 'category', 'item_name']).size().reset_index(name='count')
+    
+    return beverage_counts
 
 #Calculate sells by day of week
 def calculate_sales_by_day_of_week(df):
