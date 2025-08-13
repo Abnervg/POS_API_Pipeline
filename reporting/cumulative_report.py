@@ -11,6 +11,7 @@ from mlxtend.preprocessing import TransactionEncoder
 import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from reporting.utils import convert_md_to_pdf, send_report_by_email
 
 #Import cleaning functions
 from reporting.data_preparation import clean_data_for_reporting, explode_combo_items_advanced
@@ -715,7 +716,19 @@ def generate_cumulative_report(config):
     # 5. Generate the final .md summary file
     association_rules_df = find_frequent_item_combinations(exploded_df)
     create_cumulative_summary_report(cleaned_df, exploded_df, association_rules_df, output_dir)
+    
+    # 6. Convert the .md report to PDF
+    md_report_path = output_dir / "cumulative_summary_report.md"
+    pdf_path = output_dir / "cumulative_summary_report.pdf"
+    now = datetime.now()
+    year = now.strftime('%Y')
+    month = now.strftime('%m')
+    file_tag = f"cumulative_summary_report_{year}_{month}"
+    convert_md_to_pdf(md_report_path, pdf_path)
 
+    # 7. Optionally send the report via email
+    email_recipient = config.get('email_recipient')
+    send_report_by_email(pdf_path, email_recipient, file_tag)
     logger.info("--- Finished Cumulative Report Generation ---")
 
 

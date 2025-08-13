@@ -98,7 +98,8 @@ def main():
         "project_dir": project_dir,
         "base_url": os.getenv("BASE_URL"),
         "api_key": os.getenv("POS_API_KEY"),
-        "s3_bucket": os.getenv("S3_BUCKET_NAME")
+        "s3_bucket": os.getenv("S3_BUCKET_NAME"),
+        "recipient_email": os.getenv("RECIPIENT_EMAIL")
     }
     if not all(config.values()):
         raise ValueError("One or more required environment variables are not set.")

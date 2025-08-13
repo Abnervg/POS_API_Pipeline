@@ -9,7 +9,7 @@ import os
 
 def convert_md_to_pdf(md_path, output_dir):
     """
-    Converts a Markdown report file to a PDF.
+    Converts a Markdown report file to a PDF, handling relative image paths.
 
     Args:
         md_path (Path): The path to the input .md file.
@@ -21,22 +21,33 @@ def convert_md_to_pdf(md_path, output_dir):
     logger = logging.getLogger(__name__)
     logger.info(f"Converting {md_path} to PDF...")
     
+    original_cwd = Path.cwd() # Save the original working directory
     try:
+        # Temporarily change the working directory to where the .md file is
+        os.chdir(md_path.parent)
+
         pdf = MarkdownPdf()
-        with open(md_path, "r", encoding="utf-8") as f:
+        
+        with open(md_path.name, "r", encoding="utf-8") as f:
             md_content = f.read()
         
-        # The root_path tells the converter where to find the embedded images
-        pdf.add_section(Section(md_content, root_path=md_path.parent))
+        pdf.add_section(Section(md_content))
         
-        pdf_path = output_dir / f"{md_path.stem}.pdf"
-        pdf.save(pdf_path)
+        # --- FIX: Pass only the filename to the save method ---
+        pdf_filename = f"{md_path.stem}.pdf"
+        pdf.save(pdf_filename)
+        
+        # Construct the full path for the return value
+        pdf_path = output_dir / pdf_filename
         
         logger.info(f"Successfully converted report to PDF: {pdf_path}")
         return pdf_path
     except Exception as e:
         logger.error(f"Failed to convert Markdown to PDF. Error: {e}")
         return None
+    finally:
+        # Always change back to the original directory
+        os.chdir(original_cwd)
 
 def send_report_by_email(pdf_path, recipient_email, file_tag):
     """
