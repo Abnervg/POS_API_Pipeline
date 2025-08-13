@@ -108,7 +108,6 @@ def plot_monthly_beverage_comparison(df, output_dir):
     comparison_data = calculate_beverage_distribution_by_month(df)
 
     # 2. Create the plot using Seaborn's catplot
-    # --- FIX: Use the 'order' parameter to enforce consistent alignment ---
     g = sns.catplot(
         data=comparison_data,
         x='category',
@@ -119,8 +118,7 @@ def plot_monthly_beverage_comparison(df, output_dir):
         palette='tab10',
         height=7,
         aspect=1.1,
-        order=['Aguas', 'Malteadas', 'Refrescos'], # This ensures alignment
-        legend=False # We will create a custom legend
+        order=['Aguas', 'Malteadas', 'Refrescos'] # This ensures alignment
     )
 
     # 3. Add titles and labels
@@ -128,8 +126,9 @@ def plot_monthly_beverage_comparison(df, output_dir):
     g.set_axis_labels("Beverage Category", "Number of Items Sold")
     g.set_titles("Month: {col_name}")
     
-    # --- FIX: Move the legend outside the plot area ---
-    plt.legend(title='Beverage Type', bbox_to_anchor=(1.02, 1), loc='upper left')
+    # --- FIX: Move the automatically generated legend outside the plot area ---
+    g.legend.set_title("Beverage Type")
+    g.legend.set_bbox_to_anchor((1.02, 0.5)) # Move legend to the right
     
     # Adjust layout to make space for the legend
     plt.tight_layout(rect=[0, 0, 0.85, 0.97])
@@ -141,6 +140,7 @@ def plot_monthly_beverage_comparison(df, output_dir):
     plt.close()
 
     logger.info(f"Monthly beverage comparison plot saved to: {plot_path}")
+
 
 
 def plot_beverage_distribution(df, output_dir):
