@@ -397,3 +397,23 @@ def calculate_daily_sales_metrics(df):
     
     return daily_metrics
 
+def calculate_daily_sales_for_comparison(df):
+    """
+    Calculates total sales and unique receipts for each day, keeping the
+    month separate for comparison.
+    """
+    df = df.copy()
+    df['shifted_time'] = pd.to_datetime(df['shifted_time'], errors='coerce')
+    df.dropna(subset=['shifted_time'], inplace=True)
+    
+    # Create 'month' and 'day' columns for grouping
+    df['month'] = df['shifted_time'].dt.strftime('%Y-%m')
+    df['day_of_month'] = df['shifted_time'].dt.day
+    
+    # Group by both month and day and aggregate
+    daily_metrics = df.groupby(['month', 'day_of_month']).agg(
+        total_sales=('price', 'sum'),
+        unique_receipts=('receipt_number', 'nunique')
+    ).reset_index()
+    
+    return daily_metrics

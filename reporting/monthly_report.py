@@ -12,7 +12,7 @@ from .utils import convert_md_to_pdf, send_report_by_email
 from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced
 from .data_preparation import calculate_beverage_distribution, calculate_mayo_percentages_and_counts, calculate_sales_by_day_of_week
 from .data_preparation import calculate_daily_sales_metrics, calculate_sales_by_day_for_comparison, calculate_mayo_distribution_by_month, calculate_beverage_distribution_by_month
-from .data_preparation import get_top_products
+from .data_preparation import get_top_products, calculate_daily_sales_for_comparison
 # Requests monthly data
 
 def request_monthly_data(bucket_name):
@@ -387,6 +387,46 @@ def plot_daily_sales_trends(df, output_dir):
 
 # Plot monthly comparisons
 
+def plot_daily_sales_comparison(df, output_dir):
+    """
+    Generates a comparative line plot of daily customer traffic for two months.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating daily sales comparison plot...")
+
+    # 1. Get the daily metrics, prepared for comparison
+    daily_data = calculate_daily_sales_for_comparison(df)
+
+    # 2. Create the plot with a single Y-axis
+    plt.figure(figsize=(15, 8))
+    
+    # Use 'hue' to create a separate line for each month
+    ax = sns.lineplot(
+        data=daily_data, 
+        x='day_of_month', 
+        y='unique_receipts', 
+        hue='month',
+        palette=['gray', 'black'], 
+        marker='o'
+    )
+    
+    # 3. Add titles and formatting
+    ax.set_xlabel('Day of the Month', fontsize=12)
+    ax.set_ylabel('Number of Unique Receipts', fontsize=12)
+    plt.title('Daily Customer Traffic: Month-over-Month Comparison', fontsize=16)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend(title='Month')
+    plt.tight_layout()
+    
+    # 4. Save the plot
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "daily_sales_comparison.png"
+    plt.savefig(plot_path)
+    plt.close()
+
+    logger.info(f"Daily sales comparison plot saved to: {plot_path}")
+
+
 def plot_monthly_comparison_by_weekday(df, output_dir):
     """
     Generates a comparative line plot showing sales traffic by day of the week
@@ -453,7 +493,7 @@ def create_monthly_summary_report(df, output_dir):
     df['shifted_time'] = pd.to_datetime(df['shifted_time'])
     df['month'] = df['shifted_time'].dt.strftime('%Y-%m')
 
-    # --- 1. Separate Data for Analysis ---
+    # --- 1. Separate Data and Calculate KPIs ---
     now = datetime.now()
     report_month_date = now - relativedelta(months=1)
     comparison_month_date = now - relativedelta(months=2)
@@ -464,7 +504,6 @@ def create_monthly_summary_report(df, output_dir):
     report_month_df = df[df['month'] == report_month_tag]
     comparison_month_df = df[df['month'] == comparison_month_tag]
 
-    # --- 2. Calculate KPIs and Comparisons ---
     def calculate_kpis(data):
         if data.empty: return {'revenue': 0, 'receipts': 0}
         return {'revenue': data['price'].sum(), 'receipts': data['receipt_number'].nunique()}
@@ -480,14 +519,14 @@ def create_monthly_summary_report(df, output_dir):
     revenue_change = pct_change(kpis_report['revenue'], kpis_comparison['revenue'])
     receipts_change = pct_change(kpis_report['receipts'], kpis_comparison['receipts'])
 
-    # --- 3. Calculate Top 5 Products for Both Months ---
+    # --- 2. Calculate Top 5 Products for Both Months ---
     exploded_report_df = explode_combo_items_advanced(report_month_df)
     exploded_comparison_df = explode_combo_items_advanced(comparison_month_df)
     
     top_5_report = get_top_products(exploded_report_df, 5)
     top_5_comparison = get_top_products(exploded_comparison_df, 5)
 
-    # --- 4. Assemble the Report Content ---
+    # --- 3. Assemble the Report Content ---
     report_content = f"""
 # Monthly Sales Report: {report_month_tag}
 
@@ -518,26 +557,32 @@ This report analyzes sales performance for **{report_month_tag}** and compares i
 
 ## 📊 Visual Comparisons
 
+### Daily Customer Traffic
+
+![Daily Sales Comparison](./daily_sales_comparison.png)
+
+***Discussion:*** [This plot shows the daily customer traffic for both months.]
+
 ### Sales Traffic by Day of the Week
 
 ![Monthly Comparison by Weekday](./monthly_comparison_by_weekday.png)
 
-***Discussion:*** [Add your analysis here.]
+***Discussion:*** [This plot shows the sales traffic by day of the week for both months.]
 
 ### Mayonnaise Preference per Burger
 
 ![Monthly Mayo Comparison](./monthly_mayo_preference_comparison.png)
 
-***Discussion:*** [Add your analysis here.]
+***Discussion:*** [This plot shows the preference for mayonnaise on burgers for both months.]
 
 ### Beverage Sales Distribution
 
 ![Monthly Beverage Comparison](./monthly_beverage_comparison.png)
 
-***Discussion:*** [Add your analysis here.]
+***Discussion:*** [This plot shows the beverage sales distribution for both months.]
 """
 
-    # --- 5. Save the Report ---
+    # --- 4. Save the Report ---
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / f"monthly_summary_{report_month_tag}.md"
     
@@ -546,6 +591,9 @@ This report analyzes sales performance for **{report_month_tag}** and compares i
         
     logger.info(f"Monthly summary report saved to: {report_path}")
     return report_path
+
+
+
 
 # --- Main Function to Generate Monthly Report ---
 
@@ -581,6 +629,7 @@ def generate_monthly_report(config):
     plot_monthly_beverage_comparison(cleaned_df, report_output_dir)
     plot_monthly_mayo_comparison(cleaned_df, report_output_dir)
     plot_monthly_comparison_by_weekday(cleaned_df, report_output_dir)
+    plot_daily_sales_comparison(cleaned_df, report_output_dir)
     
     # This plot is for the most recent month's top products
     report_month_df = exploded_df[exploded_df['shifted_time'].dt.strftime('%Y-%m') == file_tag]
