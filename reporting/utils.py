@@ -49,7 +49,7 @@ def convert_md_to_pdf(md_path, output_dir):
         # Always change back to the original directory
         os.chdir(original_cwd)
 
-def send_report_by_email(pdf_path, recipient_email, file_tag):
+def send_report_by_email(pdf_path, recipient_email, file_tag, frequency):
     """
     Sends the generated PDF report as an email attachment.
     """
@@ -72,10 +72,10 @@ def send_report_by_email(pdf_path, recipient_email, file_tag):
     msg = MIMEMultipart()
     msg['From'] = smtp_user
     msg['To'] = recipient_email
-    msg['Subject'] = f"Monthly Sales Report: {file_tag}"
+    msg['Subject'] = f"{frequency.capitalize()} Sales Report: {file_tag}"
 
     # Add the email body
-    body = f"Please find the attached sales report for {file_tag}."
+    body = f"Attached {frequency} sales report for {file_tag}."
     msg.attach(MIMEText(body, 'plain'))
 
     # Attach the PDF file

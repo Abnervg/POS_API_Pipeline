@@ -620,6 +620,7 @@ def generate_monthly_report(config):
     # --- 3. Define Output Paths and File Tags ---
     report_month = datetime.now() - relativedelta(months=1)
     file_tag = report_month.strftime('%Y-%m')
+    frequency = 'monthly'  # This is used for the report name and email subject
     report_output_dir = config['project_dir'] / "reports" / f"monthly_report_{file_tag}"
     report_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -647,6 +648,6 @@ def generate_monthly_report(config):
             logger.info("Sending report by email...")
             # Get recipient from config for better practice
             recipient_email = config.get("recipient_email", "default.recipient@example.com")
-            send_report_by_email(pdf_path, recipient_email, file_tag)
+            send_report_by_email(pdf_path, recipient_email, file_tag, frequency)
 
     logger.info(f"--- Monthly Report process completed. Artifacts are in: {report_output_dir} ---")

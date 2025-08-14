@@ -707,7 +707,7 @@ def generate_cumulative_report(config):
 
     # 7. Optionally send the report via email
     email_recipient = "abnervgarcia@hotmail.com"
-    send_report_by_email(pdf_path, email_recipient, file_tag)
+    send_report_by_email(pdf_path, email_recipient, file_tag, frequency='cumulative')
     logger.info("--- Finished Cumulative Report Generation ---")
 
 
