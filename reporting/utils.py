@@ -66,6 +66,7 @@ def send_report_by_email(pdf_path, recipient_email, file_tag):
         return
 
     logger.info(f"Preparing to send report to {recipient_email}...")
+    logger.info(f"user: {smtp_user}, host: {smtp_host}, port: {smtp_port}")
 
     # Create the email message
     msg = MIMEMultipart()

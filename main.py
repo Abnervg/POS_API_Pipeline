@@ -99,7 +99,9 @@ def main():
         "base_url": os.getenv("BASE_URL"),
         "api_key": os.getenv("POS_API_KEY"),
         "s3_bucket": os.getenv("S3_BUCKET_NAME"),
-        "recipient_email": os.getenv("RECIPIENT_EMAIL")
+        "recipient_email": os.getenv("RECIPIENT_EMAIL"),
+        "smtp_host": os.getenv("SMTP_HOST"),
+        "smtp_port": os.getenv("SMTP_PORT")
     }
     if not all(config.values()):
         raise ValueError("One or more required environment variables are not set.")

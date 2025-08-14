@@ -6,6 +6,32 @@ import re
 
 # Data preparation functions for reporting
 
+def get_top_products(df, top_n=5):
+    """
+    Counts how many times each item appears in the DataFrame and returns the top N.
+    This function should be used with the 'exploded' DataFrame for accurate counts.
+
+    Args:
+        df (pd.DataFrame): The DataFrame containing item sales data.
+        top_n (int): The number of top products to return.
+
+    Returns:
+        pd.DataFrame: A DataFrame with the top N products and their sales counts.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info(f"Calculating top {top_n} sold products...")
+
+    # .value_counts() is the most efficient way to count and sort items
+    top_items_series = df['item_name'].value_counts().head(top_n)
+    
+    # Convert the resulting Series to a DataFrame
+    top_items_df = top_items_series.reset_index()
+    
+    # Rename the columns for clarity
+    top_items_df.columns = ['item_name', 'items_sold']
+    
+    return top_items_df
+
 def calculate_sales_by_day_for_comparison(df):
     """
     Prepares data for a two-month comparison by grouping sales by month,

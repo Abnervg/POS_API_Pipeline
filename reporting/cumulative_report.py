@@ -584,16 +584,8 @@ def plot_combo_choices(df, output_dir):
 # Function to create a comprehensive cumulative summary report in Markdown format
 def create_cumulative_summary_report(df, exploded_df, association_rules_df, output_dir):
     """
-    Generates a comprehensive cumulative summary report in Markdown format,
-    including embedded plots and sections for analysis.
-
-    Args:
-        df (pd.DataFrame): The complete historical data, cleaned but not exploded.
-        exploded_df (pd.DataFrame): The historical data after exploding combo items.
-        association_rules_df (pd.DataFrame): The results from the market basket analysis.
-        output_dir (Path): The directory to save the report file.
+    Generates a comprehensive cumulative summary report in Markdown format.
     """
-    
     logger = logging.getLogger(__name__)
     logger.info("Generating comprehensive cumulative summary report...")
 
@@ -602,7 +594,7 @@ def create_cumulative_summary_report(df, exploded_df, association_rules_df, outp
     
     top_items = exploded_df['item_name'].value_counts().head(5)
     top_items_list_str = "\n".join(
-        [f"1. **{name}**: {count} sold" for name, count in top_items.items()]
+        [f"1. **{name}**: {count:,} sold" for name, count in top_items.items()]
     )
 
     market_basket_table = "| Items Purchased Together | Likelihood |\n| :--- | :--- |\n"
@@ -612,12 +604,11 @@ def create_cumulative_summary_report(df, exploded_df, association_rules_df, outp
         confidence = row['confidence']
         market_basket_table += f"| If a customer buys **{antecedents}**, they also buy **{consequents}** | {confidence:.0%} |\n"
 
-
-    # --- 2. Assemble the Report Content in Markdown Format ---
+    # --- 2. Assemble the Report Content ---
     report_content = f"""
 # Cumulative Business Performance Report
 
-This report summarizes the total business activity based on all available historical data from **{kpis['First Sale Date']}** to **{kpis['Last Sale Date']}**.
+This report summarizes all business activity from **{kpis['First Sale Date']}** to **{kpis['Last Sale Date']}**.
 
 ---
 
@@ -625,30 +616,10 @@ This report summarizes the total business activity based on all available histor
 
 | Metric                      | Value                       |
 | --------------------------- | --------------------------- |
-| **Total Revenue** | {kpis['Total Revenue']}         |
-| **Total Unique Receipts** | {kpis['Total Unique Receipts']}   |
-| **Average Receipt Value** | {kpis['Average Receipt Value']}   |
+| **Total Revenue** | {kpis['Total Revenue']}     |
+| **Total Unique Receipts** | {kpis['Total Unique Receipts']} |
+| **Average Receipt Value** | {kpis['Average Receipt Value']} |
 | **Average Monthly Revenue** | {kpis['Average Monthly Revenue']} |
-
----
-
-## 📊 Visual Analysis
-
-This section provides a visual breakdown of key business trends.
-
-### Monthly Sales Trend
-
-![Monthly Sales Trend](./monthly_sales_trend.png)
-
-***Discussion:*** This plot shows the total revenue generated for each month. We can observe [describe the trend, e.g., 'a steady growth in sales since February, with a peak in July...']. This could be due to [suggest a reason, e.g., 'seasonal demand or recent marketing efforts...'].
-
----
-
-### Hourly Customer Traffic
-
-![Hourly Sales Heatmap](./hourly_sales_heatmap.png)
-
-***Discussion:*** The heatmap reveals our busiest and quietest periods. The clear peak in activity occurs on [mention the busiest day and time, e.g., 'Friday and Saturday evenings between 8 PM and 10 PM.']. Conversely, [mention the quietest period, e.g., 'weekday afternoons'] are our slowest times. This insight can be used to optimize staffing schedules.
 
 ---
 
@@ -662,14 +633,21 @@ This list represents the most frequently sold individual items, including those 
 
 ## 🛒 Popular Product Combinations
 
-This table shows which items are frequently purchased together, based on a confidence threshold of 50%.
+This table shows which items are frequently purchased together.
 
 {market_basket_table}
 
-***Discussion:*** The data suggests strong associations between certain products. The fact that [mention the top rule, e.g., 'Smash Burgers and Coca-Cola'] are purchased together so frequently suggests that a combo meal promotion could be very successful.
+---
+
+## 📊 Visualizations
+
+See the accompanying plot images in this directory for more detailed historical trends.
+- `monthly_sales_trend.png`
+- `hourly_sales_heatmap.png`
+- `weekday_vs_weekend_performance.png`
 """
 
-    # --- 3. Save the Report to a File ---
+    # --- 3. Save the Report ---
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / "cumulative_summary_report.md"
     
@@ -677,8 +655,9 @@ This table shows which items are frequently purchased together, based on a confi
         f.write(report_content.strip())
         
     logger.info(f"Cumulative summary report saved to: {report_path}")
-
     return report_path
+
+
 
 
 
@@ -727,7 +706,7 @@ def generate_cumulative_report(config):
     convert_md_to_pdf(md_report_path, pdf_path)
 
     # 7. Optionally send the report via email
-    email_recipient = config.get('email_recipient')
+    email_recipient = "abnervgarcia@hotmail.com"
     send_report_by_email(pdf_path, email_recipient, file_tag)
     logger.info("--- Finished Cumulative Report Generation ---")
 

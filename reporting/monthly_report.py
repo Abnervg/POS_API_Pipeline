@@ -6,12 +6,13 @@ import numpy as np
 import seaborn as sns
 from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
+from .utils import convert_md_to_pdf, send_report_by_email
 
 # Import your data preparation functions
 from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced
 from .data_preparation import calculate_beverage_distribution, calculate_mayo_percentages_and_counts, calculate_sales_by_day_of_week
 from .data_preparation import calculate_daily_sales_metrics, calculate_sales_by_day_for_comparison, calculate_mayo_distribution_by_month, calculate_beverage_distribution_by_month
-
+from .data_preparation import get_top_products
 # Requests monthly data
 
 def request_monthly_data(bucket_name):
@@ -140,6 +141,51 @@ def plot_monthly_beverage_comparison(df, output_dir):
     plt.close()
 
     logger.info(f"Monthly beverage comparison plot saved to: {plot_path}")
+
+def create_top_products_plot(df, output_dir):
+    """
+    Generates a bar chart of the top 5 sold products for a given month
+    and saves it to a file.
+
+    Args:
+        df (pd.DataFrame): The DataFrame for a single month (already exploded).
+        output_dir (Path): The directory where the plot image will be saved.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating top products plot...")
+    
+    # 1. Get the top 5 items from the data
+    top_products_df = get_top_products(df, top_n=5)
+    
+    # 2. Create the plot
+    plt.figure(figsize=(10, 7))
+    ax = sns.barplot(
+        data=top_products_df, 
+        x='item_name', 
+        y='items_sold', 
+        hue='item_name', # Use hue to assign different colors
+        palette='viridis', 
+        legend=False
+    )
+    
+    # 3. Add labels on top of the bars
+    ax.bar_label(ax.containers[0])
+    
+    # 4. Add titles and labels for clarity
+    plt.title('Top 5 Most Sold Items This Month', fontsize=16)
+    plt.xlabel('Product', fontsize=12)
+    plt.ylabel('Number of Items Sold', fontsize=12)
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    
+    # 5. Save the plot to a file
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "top_5_products.png"
+    plt.savefig(plot_path)
+    plt.close() # Close the plot to free up memory
+    
+    logger.info(f"Top products plot saved to: {plot_path}")
+
 
 
 
@@ -389,39 +435,169 @@ def plot_monthly_comparison_by_weekday(df, output_dir):
     logger.info(f"Monthly comparison plot saved to: {plot_path}")
 
 
+# Monthly report template
 
+def create_monthly_summary_report(df, output_dir):
+    """
+    Generates a comprehensive summary report in Markdown format for the last 
+    complete month, with detailed comparisons to the month prior.
 
-# --- Main Orchestrator Function for this Module ---
+    Args:
+        df (pd.DataFrame): DataFrame containing data for the last two months.
+        output_dir (Path): The directory to save the report file.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating monthly summary report...")
+
+    df = df.copy()
+    df['shifted_time'] = pd.to_datetime(df['shifted_time'])
+    df['month'] = df['shifted_time'].dt.strftime('%Y-%m')
+
+    # --- 1. Separate Data for Analysis ---
+    now = datetime.now()
+    report_month_date = now - relativedelta(months=1)
+    comparison_month_date = now - relativedelta(months=2)
+
+    report_month_tag = report_month_date.strftime('%Y-%m')
+    comparison_month_tag = comparison_month_date.strftime('%Y-%m')
+
+    report_month_df = df[df['month'] == report_month_tag]
+    comparison_month_df = df[df['month'] == comparison_month_tag]
+
+    # --- 2. Calculate KPIs and Comparisons ---
+    def calculate_kpis(data):
+        if data.empty: return {'revenue': 0, 'receipts': 0}
+        return {'revenue': data['price'].sum(), 'receipts': data['receipt_number'].nunique()}
+
+    kpis_report = calculate_kpis(report_month_df)
+    kpis_comparison = calculate_kpis(comparison_month_df)
+
+    def pct_change(current, previous):
+        if previous == 0: return " (new)"
+        change = ((current - previous) / previous) * 100
+        return f" ({change:+.1f}%)"
+
+    revenue_change = pct_change(kpis_report['revenue'], kpis_comparison['revenue'])
+    receipts_change = pct_change(kpis_report['receipts'], kpis_comparison['receipts'])
+
+    # --- 3. Calculate Top 5 Products for Both Months ---
+    exploded_report_df = explode_combo_items_advanced(report_month_df)
+    exploded_comparison_df = explode_combo_items_advanced(comparison_month_df)
+    
+    top_5_report = get_top_products(exploded_report_df, 5)
+    top_5_comparison = get_top_products(exploded_comparison_df, 5)
+
+    # --- 4. Assemble the Report Content ---
+    report_content = f"""
+# Monthly Sales Report: {report_month_tag}
+
+This report analyzes sales performance for **{report_month_tag}** and compares it to **{comparison_month_tag}**.
+
+---
+
+## 📈 Monthly Performance Summary
+
+| Metric                      | Report Month ({report_month_tag}) | Comparison Month ({comparison_month_tag}) |
+| --------------------------- | --------------------------- | ----------------------------- |
+| **Total Revenue** | `${kpis_report['revenue']:,.2f}` **{revenue_change}** | `${kpis_comparison['revenue']:,.2f}`       |
+| **Total Unique Receipts** | `{kpis_report['receipts']:,}` **{receipts_change}** | `{kpis_comparison['receipts']:,}`       |
+
+---
+
+## 🍔 Top 5 Products Comparison
+
+| Rank | Top Products ({report_month_tag}) | Items Sold | | Top Products ({comparison_month_tag}) | Items Sold |
+| :---: | :--- | :---: | :---: | :--- | :---: |
+| **1** | {top_5_report.iloc[0]['item_name']} | {top_5_report.iloc[0]['items_sold']} | | {top_5_comparison.iloc[0]['item_name']} | {top_5_comparison.iloc[0]['items_sold']} |
+| **2** | {top_5_report.iloc[1]['item_name']} | {top_5_report.iloc[1]['items_sold']} | | {top_5_comparison.iloc[1]['item_name']} | {top_5_comparison.iloc[1]['items_sold']} |
+| **3** | {top_5_report.iloc[2]['item_name']} | {top_5_report.iloc[2]['items_sold']} | | {top_5_comparison.iloc[2]['item_name']} | {top_5_comparison.iloc[2]['items_sold']} |
+| **4** | {top_5_report.iloc[3]['item_name']} | {top_5_report.iloc[3]['items_sold']} | | {top_5_comparison.iloc[3]['item_name']} | {top_5_comparison.iloc[3]['items_sold']} |
+| **5** | {top_5_report.iloc[4]['item_name']} | {top_5_report.iloc[4]['items_sold']} | | {top_5_comparison.iloc[4]['item_name']} | {top_5_comparison.iloc[4]['items_sold']} |
+
+---
+
+## 📊 Visual Comparisons
+
+### Sales Traffic by Day of the Week
+
+![Monthly Comparison by Weekday](./monthly_comparison_by_weekday.png)
+
+***Discussion:*** [Add your analysis here.]
+
+### Mayonnaise Preference per Burger
+
+![Monthly Mayo Comparison](./monthly_mayo_preference_comparison.png)
+
+***Discussion:*** [Add your analysis here.]
+
+### Beverage Sales Distribution
+
+![Monthly Beverage Comparison](./monthly_beverage_comparison.png)
+
+***Discussion:*** [Add your analysis here.]
+"""
+
+    # --- 5. Save the Report ---
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_path = output_dir / f"monthly_summary_{report_month_tag}.md"
+    
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(report_content.strip())
+        
+    logger.info(f"Monthly summary report saved to: {report_path}")
+    return report_path
+
+# --- Main Function to Generate Monthly Report ---
 
 def generate_monthly_report(config):
     """
-    Orchestrates the entire monthly report generation process.
+    Orchestrates the entire monthly report generation and delivery process.
     """
     logger = logging.getLogger(__name__)
     logger.info("--- Starting Monthly Report Generation ---")
-    
-    # Request data
-    bucket_name = config['s3_bucket']
-    monthly_df = request_monthly_data(bucket_name)
 
-    # 1. Prepare the data for reporting
-    cleaned_df = clean_data_for_reporting(monthly_df)
-    final_df = explode_combo_items_advanced(cleaned_df)
-    
-    # 2. Define output directory for this month's report
-    now = datetime.now()
-    report_output_dir = config['project_dir'] / "reports" / f"monthly_report_{now.year}_{now.month:02d}"
-    
-    # 3. Generate all plots
+    # --- 1. Load Data ---
+    s3_bucket = config['s3_bucket']
+    two_months_df = request_monthly_data(s3_bucket)
 
-    #plot_stacked_counts_with_percentage_labels(final_df, report_output_dir)
-    #plot_beverage_distribution(final_df, report_output_dir)
-    #plot_sales_by_day_of_week(final_df, report_output_dir)
-    #plot_daily_sales_trends(final_df, report_output_dir)
-    plot_monthly_beverage_comparison(final_df, report_output_dir)
-    plot_monthly_mayo_comparison(final_df, report_output_dir)
-    plot_monthly_comparison_by_weekday(final_df, report_output_dir)
+    if two_months_df.empty:
+        logger.warning("No data found for the last two months. Skipping monthly report.")
+        return
 
-    # (Future step: Call a function to generate the .md summary file here)
+    # --- 2. Prepare Data ---
+    # This step creates the two versions of the data we need for different analyses
+    cleaned_df = clean_data_for_reporting(two_months_df)
+    exploded_df = explode_combo_items_advanced(cleaned_df)
+
+    # --- 3. Define Output Paths and File Tags ---
+    report_month = datetime.now() - relativedelta(months=1)
+    file_tag = report_month.strftime('%Y-%m')
+    report_output_dir = config['project_dir'] / "reports" / f"monthly_report_{file_tag}"
+    report_output_dir.mkdir(parents=True, exist_ok=True)
+
+    # --- 4. Generate All Report Artifacts ---
+    logger.info("Generating plots...")
+    # These plots compare months, so they use the full two-month DataFrame
+    plot_monthly_beverage_comparison(cleaned_df, report_output_dir)
+    plot_monthly_mayo_comparison(cleaned_df, report_output_dir)
+    plot_monthly_comparison_by_weekday(cleaned_df, report_output_dir)
     
-    logger.info(f"--- Monthly Report generated successfully in: {report_output_dir} ---")
+    # This plot is for the most recent month's top products
+    report_month_df = exploded_df[exploded_df['shifted_time'].dt.strftime('%Y-%m') == file_tag]
+    create_top_products_plot(report_month_df, report_output_dir)
+
+    logger.info("Generating summary document...")
+    report_md_path = create_monthly_summary_report(cleaned_df, report_output_dir)
+    
+    # --- 5. Deliver the Final Report ---
+    if report_md_path:
+        logger.info("Converting report to PDF...")
+        pdf_path = convert_md_to_pdf(report_md_path, report_output_dir)
+        
+        if pdf_path:
+            logger.info("Sending report by email...")
+            # Get recipient from config for better practice
+            recipient_email = config.get("recipient_email", "default.recipient@example.com")
+            send_report_by_email(pdf_path, recipient_email, file_tag)
+
+    logger.info(f"--- Monthly Report process completed. Artifacts are in: {report_output_dir} ---")
