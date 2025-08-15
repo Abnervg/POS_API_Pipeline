@@ -14,7 +14,7 @@ from etl.extract import (
     save_raw_data
 )
 from etl.transform import run_transform # Assuming this is your main transform orchestrator
-from etl.load import merge_and_load_partitioned_data, load_historical_data_from_local
+from etl.load import merge_and_load_partitioned_data, load_historical_data_from_local, merge_and_overwrite_monthly_data
 from reporting.monthly_report import generate_monthly_report
 from reporting.cumulative_report import generate_cumulative_report
 
@@ -46,7 +46,7 @@ def run_incremental_etl(config):
         new_df = run_transform(new_receipts, new_items)
 
         # 4. Merge the new data with historical data in S3
-        merge_and_load_partitioned_data(new_df, s3_bucket)
+        merge_and_overwrite_monthly_data(new_df, s3_bucket)
 
         # 5. Update the state file with the newest timestamp from this batch
         update_last_timestamp(state_file, new_receipts)

@@ -84,7 +84,8 @@ def load_historical_data_from_local(local_raw_dir, s3_bucket):
 
 def merge_and_load_partitioned_data(new_df, s3_bucket):
     """
-    Merges new data with historical data in S3, partitioned by year and month.
+    Loads historical data, merges new data, deduplicates, and saves the
+    data back to S3, partitioned by month with a single data.parquet file.
     """
     logger = logging.getLogger(__name__)
     
@@ -92,46 +93,92 @@ def merge_and_load_partitioned_data(new_df, s3_bucket):
         logger.info("No new data to load. Skipping merge process.")
         return
 
-    # Ensure the datetime column is in the correct format to extract year and month
+    # 1. Prepare the new DataFrame
     new_df['shifted_time'] = pd.to_datetime(new_df['shifted_time'], errors='coerce')
     new_df.dropna(subset=['shifted_time'], inplace=True)
 
-    # Find the unique months in the new data (e.g., ['2025-06', '2025-07'])
-    new_df['year_month'] = new_df['shifted_time'].dt.strftime('%Y-%m')
-    unique_months = new_df['year_month'].unique()
+    # 2. Define the base S3 path for the partitioned data
+    base_s3_path = f"s3://{s3_bucket}/curated_data/"
+    
+    try:
+        # 3. Load the entire existing dataset from S3
+        historical_df = pd.read_parquet(base_s3_path)
+        logger.info(f"Loaded {len(historical_df)} historical records from S3.")
+        
+        # 4. Combine the historical data with the new data
+        combined_df = pd.concat([historical_df, new_df], ignore_index=True)
+        
+    except FileNotFoundError:
+        logger.info("No historical data found in S3. Starting with new data.")
+        combined_df = new_df
 
-    logger.info(f"New data spans the following months: {unique_months}")
+    # 5. Deduplicate, keeping the most recent entry for each receipt
+    combined_df.sort_values(by='shifted_time', ascending=False, inplace=True)
+    combined_df.drop_duplicates(subset=['receipt_number', 'item_name'], keep='first', inplace=True)
 
-    # Process each month's data separately
+    # 6. Create a 'year_month' column to group by
+    combined_df['year_month'] = combined_df['shifted_time'].dt.strftime('%Y-%m')
+
+    # --- FIX: Loop through each month and save it as a single file ---
+    unique_months = combined_df['year_month'].unique()
+    logger.info(f"Saving data for the following months: {unique_months}")
+
     for month_tag in unique_months:
         year, month = month_tag.split('-')
         
-        # Filter the new data for the current month being processed
-        monthly_data_to_add = new_df[new_df['year_month'] == month_tag]
-
-        # Define the S3 path for this specific month's data
-        s3_path = f"s3://{s3_bucket}/curated_data/year={year}/month={month}/data.parquet"
-        logger.info(f"Processing data for {month_tag} at path: {s3_path}")
-
-        try:
-            # 1. Load the existing historical data for this month from S3
-            historical_df = pd.read_parquet(s3_path)
-            logger.info(f"Loaded {len(historical_df)} historical records for {month_tag}.")
-        except FileNotFoundError:
-            # If the file doesn't exist, it's the first run for this month
-            historical_df = pd.DataFrame()
-            logger.info(f"No historical data found for {month_tag}. Creating new file.")
-
-        # 2. Append the new data
-        combined_df = pd.concat([historical_df, monthly_data_to_add], ignore_index=True)
-
-        # 3. Deduplicate, keeping the most recent entry for each receipt
-        # This is crucial for data integrity
-        combined_df.sort_values(by='shifted_time', ascending=False, inplace=True)
-        combined_df.drop_duplicates(subset=['receipt_number', 'item_name'], keep='first', inplace=True)
-
-        # 4. Save the merged and deduplicated data back to S3, overwriting the old file
-        logger.info(f"Uploading {len(combined_df)} total records for {month_tag} to S3.")
-        combined_df.to_parquet(s3_path, index=False)
+        # Filter the DataFrame for the current month
+        monthly_data = combined_df[combined_df['year_month'] == month_tag]
+        
+        # Define the specific path for this month's single file
+        s3_path_for_month = f"s3://{s3_bucket}/curated_data/year={year}/month={month}/data.parquet"
+        
+        logger.info(f"Uploading {len(monthly_data)} records for {month_tag} to {s3_path_for_month}")
+        monthly_data.to_parquet(s3_path_for_month, index=False)
 
     logger.info("Finished merging and loading all new data to S3.")
+
+def merge_and_overwrite_monthly_data(new_df, s3_bucket):
+    """
+    Loads the current month's data from S3, merges new data, deduplicates,
+    and saves the updated monthly file back to S3.
+    """
+    logger = logging.getLogger(__name__)
+    
+    if new_df.empty:
+        logger.info("No new data to load. Skipping merge process.")
+        return
+
+    # 1. Prepare the new DataFrame and determine the current month for processing
+    new_df['shifted_time'] = pd.to_datetime(new_df['shifted_time'], errors='coerce')
+    new_df.dropna(subset=['shifted_time'], inplace=True)
+    
+    # This assumes all new data is for the same month
+    current_month_tag = new_df['shifted_time'].dt.strftime('%Y-%m').iloc[0]
+    year, month = current_month_tag.split('-')
+
+    # 2. Define the S3 path for this specific month's data
+    s3_path = f"s3://{s3_bucket}/curated_data/year={year}/month={month}/data.parquet"
+    logger.info(f"Updating data for {current_month_tag} at path: {s3_path}")
+
+    try:
+        # 3. Load the existing data for ONLY this month from S3
+        historical_df = pd.read_parquet(s3_path)
+        logger.info(f"Loaded {len(historical_df)} existing records for {current_month_tag}.")
+        
+        # 4. Combine the historical data with the new data
+        combined_df = pd.concat([historical_df, new_df], ignore_index=True)
+        
+    except FileNotFoundError:
+        # If no data exists for this month, the new data is the starting point
+        logger.info(f"No existing data found for {current_month_tag}. Starting with new data.")
+        combined_df = new_df
+
+    # 5. Deduplicate, keeping the most recent entry for each receipt
+    combined_df.sort_values(by='shifted_time', ascending=False, inplace=True)
+    combined_df.drop_duplicates(subset=['receipt_number', 'item_name'], keep='first', inplace=True)
+
+    # 6. Save the complete, updated monthly dataset back to S3, overwriting the old file
+    logger.info(f"Uploading {len(combined_df)} total records for {current_month_tag} to S3.")
+    combined_df.to_parquet(s3_path, index=False)
+
+    logger.info("Finished merging and loading data for the current month to S3.")

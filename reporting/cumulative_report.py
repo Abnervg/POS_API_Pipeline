@@ -445,7 +445,7 @@ def plot_hourly_sales_heatmap(df, output_dir):
     logger.info(f"Hourly sales heatmap saved to: {plot_path}")
 
 # Produce a time series bar chart of total sales for each individual month
-def plot_cumulative_sales_trend(df, output_dir):
+def plot_monthly_sales_trend(df, output_dir):
     """
     Generates a time series bar chart of total sales for each individual month.
 
@@ -468,14 +468,17 @@ def plot_cumulative_sales_trend(df, output_dir):
     # Group by this new month column and sum the sales
     monthly_sales = df.groupby('month')['price'].sum().reset_index()
 
-    # Create the plot
+    # --- Use a bar chart for clearer comparison ---
     plt.figure(figsize=(12, 7))
-    ax = sns.lineplot(
+    ax = sns.barplot(
         data=monthly_sales, 
         x='month', 
         y='price', 
         color='navy'
     )
+
+    # --- FIX: Ensure the y-axis starts at zero ---
+    ax.set_ylim(0)
 
     # Add titles and labels
     plt.title('Total Sales per Month', fontsize=18)
@@ -584,10 +587,20 @@ def plot_combo_choices(df, output_dir):
 # Function to create a comprehensive cumulative summary report in Markdown format
 def create_cumulative_summary_report(df, exploded_df, association_rules_df, output_dir):
     """
-    Generates a comprehensive cumulative summary report in Markdown format.
+    Generates a comprehensive cumulative summary report in Markdown format,
+    including all embedded plots and sections for analysis.
+
+    Args:
+        df (pd.DataFrame): The complete historical data, cleaned but not exploded.
+        exploded_df (pd.DataFrame): The historical data after exploding combo items.
+        association_rules_df (pd.DataFrame): The results from the market basket analysis.
+        output_dir (Path): The directory to save the report file.
     """
+    
     logger = logging.getLogger(__name__)
     logger.info("Generating comprehensive cumulative summary report...")
+
+    
 
     # --- 1. Calculate and Format Data for the Report ---
     kpis = calculate_cumulative_metrics(df)
@@ -604,7 +617,8 @@ def create_cumulative_summary_report(df, exploded_df, association_rules_df, outp
         confidence = row['confidence']
         market_basket_table += f"| If a customer buys **{antecedents}**, they also buy **{consequents}** | {confidence:.0%} |\n"
 
-    # --- 2. Assemble the Report Content ---
+
+    # --- 2. Assemble the Report Content in Markdown Format ---
     report_content = f"""
 # Cumulative Business Performance Report
 
@@ -623,6 +637,34 @@ This report summarizes all business activity from **{kpis['First Sale Date']}** 
 
 ---
 
+## 📊 Visual Analysis
+
+This section provides a visual breakdown of key business trends based on all historical data.
+
+### Monthly Sales Trend
+
+![Monthly Sales Trend](./monthly_sales_trend.png)
+
+***Discussion:*** This plot shows the total revenue generated for each month. We can observe [describe the trend, e.g., 'a steady growth in sales since February, with a peak in July...']. This could be due to [suggest a reason, e.g., 'seasonal demand or recent marketing efforts...'].
+
+---
+
+### Hourly Customer Traffic
+
+![Hourly Sales Heatmap](./hourly_sales_heatmap.png)
+
+***Discussion:*** The heatmap reveals our busiest and quietest periods. The clear peak in activity occurs on [mention the busiest day and time, e.g., 'Friday and Saturday evenings between 8 PM and 10 PM.']. Conversely, [mention the quietest period, e.g., 'weekday afternoons'] are our slowest times. This insight can be used to optimize staffing schedules.
+
+---
+
+### Weekday vs. Weekend Performance
+
+![Weekday vs. Weekend Performance](./weekday_vs_weekend_performance.png)
+
+***Discussion:*** This comparison highlights differences in customer behavior. We can see that while [e.g., 'total revenue is higher on weekends'], the [e.g., 'average spend per customer is slightly higher on weekdays...'].
+
+---
+
 ## 🍔 All-Time Top 5 Products
 
 This list represents the most frequently sold individual items, including those from combo meals.
@@ -637,17 +679,10 @@ This table shows which items are frequently purchased together.
 
 {market_basket_table}
 
----
-
-## 📊 Visualizations
-
-See the accompanying plot images in this directory for more detailed historical trends.
-- `monthly_sales_trend.png`
-- `hourly_sales_heatmap.png`
-- `weekday_vs_weekend_performance.png`
+***Discussion:*** The data suggests strong associations between certain products. The fact that [mention the top rule, e.g., 'Smash Burgers and Coca-Cola'] are purchased together so frequently suggests that a combo meal promotion could be very successful.
 """
 
-    # --- 3. Save the Report ---
+    # --- 3. Save the Report to a File ---
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / "cumulative_summary_report.md"
     
@@ -655,7 +690,9 @@ See the accompanying plot images in this directory for more detailed historical 
         f.write(report_content.strip())
         
     logger.info(f"Cumulative summary report saved to: {report_path}")
+
     return report_path
+
 
 
 
@@ -686,7 +723,7 @@ def generate_cumulative_report(config):
     output_dir = config['project_dir'] / "reports" / "cumulative_report"
     
     # 4. Generate plots
-    plot_cumulative_sales_trend(cleaned_df, output_dir)
+    plot_monthly_sales_trend(cleaned_df, output_dir)
     plot_hourly_sales_heatmap(cleaned_df, output_dir)
     plot_weekday_vs_weekend_comparison(cleaned_df, output_dir)
     #plot_combo_choices(cleaned_df, output_dir)
@@ -706,8 +743,9 @@ def generate_cumulative_report(config):
     convert_md_to_pdf(md_report_path, pdf_path)
 
     # 7. Optionally send the report via email
-    email_recipient = "abnervgarcia@hotmail.com"
-    send_report_by_email(pdf_path, email_recipient, file_tag, frequency='cumulative')
+    email_recipient = config.get('recipient_email', None)
+    if email_recipient:
+        send_report_by_email(pdf_path, email_recipient, file_tag, frequency='cumulative')
     logger.info("--- Finished Cumulative Report Generation ---")
 
 
