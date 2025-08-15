@@ -94,7 +94,7 @@ with DAG(
         image=DOCKER_IMAGE,
         api_version="auto",
         auto_remove=True,
-        command="python main.py --step all", # This will run your incremental logic
+        command="python main.py --step daily_run", # This will run your incremental logic
         docker_url="unix://var/run/docker.sock",
         network_mode="bridge",
         mounts=[
