@@ -14,7 +14,7 @@ from etl.extract import (
     save_raw_data
 )
 from etl.transform import run_transform # Assuming this is your main transform orchestrator
-from etl.load import merge_and_load_partitioned_data, load_historical_data_from_local, merge_and_overwrite_monthly_data
+from etl.load import save_partitioned_data, merge_and_overwrite_monthly_data
 from reporting.monthly_report import generate_monthly_report
 from reporting.cumulative_report import generate_cumulative_report
 
@@ -84,7 +84,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run the ETL and Reporting pipeline.")
     parser.add_argument(
         '--step', 
-        choices=['daily_run', 'full_extract', 'load_historical', 'monthly_report', 'cumulative_report'], 
+        choices=['daily_run', 'full_extract', 'load_historical', 'monthly_report', 'cumulative_report', 'report'], 
         required=True,
         help='Specify which pipeline step to run.'
     )
@@ -112,11 +112,14 @@ def main():
     elif args.step == 'full_extract':
         run_full_historical_extract(config)
     elif args.step == 'load_historical':
-        load_historical_data_from_local(config['project_dir'] / "data" / "raw", config['s3_bucket'])
+        save_partitioned_data(config['project_dir'] / "data" / "raw", config['s3_bucket'])
     elif args.step == 'monthly_report':
         generate_monthly_report(config)
     elif args.step == 'cumulative_report':
         generate_cumulative_report(config)
+    elif args.step == 'report':
+        generate_cumulative_report(config)
+        generate_monthly_report(config)
 
 if __name__ == "__main__":
     main()

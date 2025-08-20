@@ -41,20 +41,24 @@ def load_to_aws_bucket(flat_table, bucket_name, file_tag):
     s3.put_object(Bucket=bucket_name, Key=f"curated_data_{file_tag}.parquet", Body=parquet_buffer.getvalue())
     logging.info(f"Curated data uploaded to S3 bucket {bucket_name} with key curated_data_{file_tag}.parquet")
 
-def load_historical_data_from_local(local_raw_dir, s3_bucket):
+def save_partitioned_data(local_raw_dir, s3_bucket):
     """
-    A one-time function to load all historical raw JSON data from a local
-    folder, transform it, and merge it into the partitioned S3 data lake.
+    Loads all historical raw JSON data from a local folder, transforms it,
+    and saves it to S3, partitioned by year and month.
+
+    Args:
+        local_raw_dir (Path): The local directory containing the raw JSON files.
+        s3_bucket (str): The S3 bucket where the data will be stored.
     """
     logger = logging.getLogger(__name__)
-    logger.info(f"--- Starting historical data backfill from {local_raw_dir} ---")
+    logger.info(f"--- Starting historical data load from {local_raw_dir} ---")
 
     # 1. Find and load all raw JSON files from the local directory
     all_receipts = []
     all_items = []
     
     receipt_files = list(local_raw_dir.glob("receipts_*.json"))
-    items_files = list(local_raw_dir.glob("items_*.json")) # Assuming one items file for simplicity
+    items_files = list(local_raw_dir.glob("items_*.json"))
 
     if not receipt_files or not items_files:
         logger.error("No raw receipt or item files found in the specified directory.")
@@ -64,6 +68,7 @@ def load_historical_data_from_local(local_raw_dir, s3_bucket):
         with open(file_path, "r", encoding="utf-8") as f:
             all_receipts.extend(json.load(f))
 
+    # For simplicity, we assume one main items file for the historical load
     with open(items_files[0], "r", encoding="utf-8") as f:
         all_items = json.load(f)
     
@@ -71,21 +76,46 @@ def load_historical_data_from_local(local_raw_dir, s3_bucket):
 
     # 2. Transform the entire historical dataset
     logger.info("Transforming historical data...")
-    historical_df = flattening_table_mine((all_receipts, all_items))
-    historical_df = homogenize_order_types(historical_df)
-    historical_df = time_slots(historical_df)
+    df_to_save = flattening_table_mine((all_receipts, all_items))
+    df_to_save = homogenize_order_types(df_to_save)
+    df_to_save = time_slots(df_to_save)
     logger.info("Transformation of historical data complete.")
+    
+    if df_to_save.empty:
+        logger.warning("Transformed DataFrame is empty. Nothing to save.")
+        return
 
-    # 3. Call the existing partitioned load function to merge and upload
-    # This reuses your existing logic to handle the partitioning and deduplication.
-    merge_and_load_partitioned_data(historical_df, s3_bucket)
+    # 3. Ensure a consistent schema before saving
+    df_to_save['shifted_time'] = pd.to_datetime(df_to_save['shifted_time'], errors='coerce')
+    for col in df_to_save.select_dtypes(include=['object']).columns:
+        df_to_save[col] = df_to_save[col].astype('string')
 
-    logger.info("--- Historical data backfill complete. ---")
+    # 4. Create a 'year_month' column to group by
+    df_to_save['year_month'] = df_to_save['shifted_time'].dt.strftime('%Y-%m')
+
+    # 5. Loop through each month and save it as a single file
+    unique_months = df_to_save['year_month'].unique()
+    logger.info(f"Saving data for the following months: {unique_months}")
+
+    for month_tag in unique_months:
+        year, month = month_tag.split('-')
+        
+        # Filter the DataFrame for the current month
+        monthly_data = df_to_save[df_to_save['year_month'] == month_tag]
+        
+        # Define the specific path for this month's single file
+        s3_path_for_month = f"s3://{s3_bucket}/curated_data/year={year}/month={month}/data.parquet"
+        
+        logger.info(f"Uploading {len(monthly_data)} records for {month_tag} to {s3_path_for_month}")
+        monthly_data.to_parquet(s3_path_for_month, index=False)
+
+    logger.info("Finished saving all partitioned data to S3.")
 
 def merge_and_load_partitioned_data(new_df, s3_bucket):
     """
-    Loads historical data, merges new data, deduplicates, and saves the
-    data back to S3, partitioned by month with a single data.parquet file.
+    Loads the entire historical dataset from S3, merges new data, deduplicates,
+    and saves the complete dataset back to S3, partitioned by year and month.
+    This is a robust method to ensure schema consistency.
     """
     logger = logging.getLogger(__name__)
     
@@ -109,6 +139,7 @@ def merge_and_load_partitioned_data(new_df, s3_bucket):
         combined_df = pd.concat([historical_df, new_df], ignore_index=True)
         
     except FileNotFoundError:
+        # If no historical data exists, the new data is the starting point
         logger.info("No historical data found in S3. Starting with new data.")
         combined_df = new_df
 
@@ -116,24 +147,22 @@ def merge_and_load_partitioned_data(new_df, s3_bucket):
     combined_df.sort_values(by='shifted_time', ascending=False, inplace=True)
     combined_df.drop_duplicates(subset=['receipt_number', 'item_name'], keep='first', inplace=True)
 
-    # 6. Create a 'year_month' column to group by
-    combined_df['year_month'] = combined_df['shifted_time'].dt.strftime('%Y-%m')
+    # 6. Create the partition columns right before saving
+    combined_df['year'] = combined_df['shifted_time'].dt.year
+    combined_df['month'] = combined_df['shifted_time'].dt.strftime('%m')
 
-    # --- FIX: Loop through each month and save it as a single file ---
-    unique_months = combined_df['year_month'].unique()
-    logger.info(f"Saving data for the following months: {unique_months}")
+    # 7. Enforce a consistent schema to prevent future errors
+    # Convert all object columns to a standard 'string' type.
+    for col in combined_df.select_dtypes(include=['object']).columns:
+        combined_df[col] = combined_df[col].astype('string')
 
-    for month_tag in unique_months:
-        year, month = month_tag.split('-')
-        
-        # Filter the DataFrame for the current month
-        monthly_data = combined_df[combined_df['year_month'] == month_tag]
-        
-        # Define the specific path for this month's single file
-        s3_path_for_month = f"s3://{s3_bucket}/curated_data/year={year}/month={month}/data.parquet"
-        
-        logger.info(f"Uploading {len(monthly_data)} records for {month_tag} to {s3_path_for_month}")
-        monthly_data.to_parquet(s3_path_for_month, index=False)
+    # 8. Save the entire combined dataset back to S3, partitioned by year and month.
+    logger.info(f"Uploading {len(combined_df)} total records to S3, partitioned by year and month.")
+    combined_df.to_parquet(
+        base_s3_path,
+        index=False,
+        partition_cols=['year', 'month']
+    )
 
     logger.info("Finished merging and loading all new data to S3.")
 

@@ -51,6 +51,7 @@ def flattening_table_mine(opened_data):
                 "item_name":      line.get("item_name"),
                 "cost":           line.get("cost"),
                 "price":          line.get("price"),
+                "total_money":    line.get("total_money"),
                 "modifiers":      mods,
                 "payment_type":   payment_types
             })
@@ -91,7 +92,7 @@ def flatten_with_pandas(receipts_data):
     # 3. SELECT AND REORDER FINAL COLUMNS
     final_columns = [
         "receipt_number", "datetime", "date", "time", "order_type",
-        "item_name", "total_money", "modifiers", "payment_type"
+        "item_name", "price", "total_money", "modifiers", "payment_type"
     ]
     # Note: I've assumed your cost/price is called 'total_money' as an example
     # You would select your actual cost/price columns here.

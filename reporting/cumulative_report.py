@@ -457,23 +457,25 @@ def plot_monthly_sales_trend(df, output_dir):
     logger.info("Generating monthly sales trend plot...")
 
     df = df.copy()
-    df['price'] = pd.to_numeric(df['price'], errors='coerce').fillna(0)
-    df['shifted_time'] = pd.to_datetime(df['shifted_time'], errors='coerce')
-    df.dropna(subset=['shifted_time'], inplace=True)
-
+    if "total_money" in df.columns:
+        df['total_money'] = pd.to_numeric(df['total_money'], errors='coerce').fillna(0)
+        df['shifted_time'] = pd.to_datetime(df['shifted_time'], errors='coerce')
+        df.dropna(subset=['shifted_time'], inplace=True)
+    else:
+        raise Exception("No 'total_money' data available for plotting.")
     # --- Data Aggregation using groupby ---
     # Create a column with the year and month (e.g., '2025-07')
     df['month'] = df['shifted_time'].dt.strftime('%Y-%m')
     
     # Group by this new month column and sum the sales
-    monthly_sales = df.groupby('month')['price'].sum().reset_index()
+    monthly_sales = df.groupby('month')['total_money'].sum().reset_index()
 
     # --- Use a bar chart for clearer comparison ---
     plt.figure(figsize=(12, 7))
     ax = sns.barplot(
         data=monthly_sales, 
         x='month', 
-        y='price', 
+        y='total_money', 
         color='navy'
     )
 
