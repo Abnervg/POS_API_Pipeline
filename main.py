@@ -14,7 +14,7 @@ from etl.extract import (
     save_raw_data
 )
 from etl.transform import run_transform # Assuming this is your main transform orchestrator
-from etl.load import save_partitioned_data, merge_and_overwrite_monthly_data
+from etl.load import load_historical_data_from_local, merge_and_overwrite_monthly_data
 from reporting.monthly_report import generate_monthly_report
 from reporting.cumulative_report import generate_cumulative_report
 
@@ -112,7 +112,7 @@ def main():
     elif args.step == 'full_extract':
         run_full_historical_extract(config)
     elif args.step == 'load_historical':
-        save_partitioned_data(config['project_dir'] / "data" / "raw", config['s3_bucket'])
+        load_historical_data_from_local(config['project_dir'] / "data" / "raw", config['s3_bucket'])
     elif args.step == 'monthly_report':
         generate_monthly_report(config)
     elif args.step == 'cumulative_report':

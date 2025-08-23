@@ -41,7 +41,7 @@ def get_monthly_time_range(tz_name="America/Mexico_City"):
     return utc_start, utc_end
 
 # Fetch all historical data from the API
-def fetch_all_historical_data(base_url, api_key, start_date="2025-02-20T00:00:00.000Z"): # Here it goes the last date you want to fetch
+def fetch_all_historical_data(base_url, api_key, start_date="2025-02-20T00:00:00.000Z", end_date="2025-08-15T23:59:59.999Z"): # Here it goes the last date you want to fetch
     """
     Fetches ALL receipts from the API, starting from a given date.
     This is intended for a one-time historical backfill.
@@ -60,7 +60,7 @@ def fetch_all_historical_data(base_url, api_key, start_date="2025-02-20T00:00:00
     all_receipts = []
     # Use the 'updated_at_min' parameter to start from the beginning of your history
     # The API sorts results from newest to oldest by default.
-    receipts_url = f"{base_url}/receipts?updated_at_min={start_date}"
+    receipts_url = f"{base_url}/receipts?updated_at_min={start_date}&updated_at_max={end_date}"
     
     logger.info(f"Starting full historical data extraction from {start_date}...")
 

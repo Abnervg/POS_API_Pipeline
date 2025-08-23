@@ -1,12 +1,10 @@
 # docker-compose.yml
-# NOTE: The 'version' attribute is obsolete and has been removed.
 x-airflow-common: &airflow-common
   image: apache/airflow:2.8.1
   environment:
     - AIRFLOW__CORE__EXECUTOR=LocalExecutor
     - AIRFLOW__CORE__LOAD_EXAMPLES=False
     - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
-    # --- New: Point Airflow to the PostgreSQL database ---
     - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
   volumes:
     - ./dags:/opt/airflow/dags
@@ -32,6 +30,9 @@ services:
       retries: 5
     ports:
       - "5432:5432"
+    # --- This is the new, persistent volume ---
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
 
   airflow-webserver:
     <<: *airflow-common
@@ -58,5 +59,6 @@ services:
     entrypoint: /bin/bash
     command: -c "airflow db upgrade && airflow users create --username admin --password admin --firstname Anonymous --lastname User --role Admin --email admin@example.com"
 
+# --- This new section defines the named volume ---
 volumes:
-  logs:
+  postgres-db:
