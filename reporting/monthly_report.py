@@ -4,13 +4,189 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import numpy as np
 import seaborn as sns
+from datetime import datetime, timezone
+from dateutil.relativedelta import relativedelta
+from .utils import convert_md_to_pdf, send_report_by_email
 
 # Import your data preparation functions
 from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced
 from .data_preparation import calculate_beverage_distribution, calculate_mayo_percentages_and_counts, calculate_sales_by_day_of_week
-from .data_preparation import calculate_daily_sales_metrics
+from .data_preparation import calculate_daily_sales_metrics, calculate_sales_by_day_for_comparison, calculate_mayo_distribution_by_month, calculate_beverage_distribution_by_month
+from .data_preparation import get_top_products, calculate_daily_sales_for_comparison
+# Requests monthly data
+
+def request_monthly_data(bucket_name):
+    """
+    Loads last and current monthly data from the S3 data lake to return a 2 month data dataframe
+
+    Args:
+        s3_bucket (str): The S3 bucket where the curated data is stored.
+
+    Returns:
+        pd.DataFrame: A single DataFrame containing 2 months worht of data.
+    """
+    logger = logging.getLogger(__name__)
+    # Defines current month tag
+    now = datetime.now()
+    last_month = now - relativedelta(months=1)
+    previous_month = last_month - relativedelta(months=1)
+
+    # Define the base path for your partitioned data
+    s3_paths_to_load = [f"s3://{bucket_name}/curated_data/year={last_month.year}/month={last_month.month:02d}/",
+                        f"s3://{bucket_name}/curated_data/year={previous_month.year}/month={previous_month.month:02d}/"
+                        ]
+    all_dfs = []
+    logger.info(f"Attempting to load data from S3 with path s3://{bucket_name}/curated_data/ for {last_month.year} year and {previous_month.month:02d},{last_month.month:02d} months")
+    for path in s3_paths_to_load:
+        try:
+            logger.info(f"Loading data from {path}")
+            monthly_df = pd.read_parquet(path)
+            all_dfs.append(monthly_df)
+        except FileNotFoundError:
+            logger.warning(f"No data found at the specified path: {path}. This may be expected if no previous month data")
+        except Exception as e:
+            logger.error(f"An error occurred while loading monthly data from S3: {e}")
+            raise
+  
+    # Combine the dataframes
+    if not all_dfs:
+        logger.warning("No data was found for the last two months")
+        return pd.DataFrame()
+    combined_df = pd.concat(all_dfs,ignore_index=True)
+
+    logger.info(f"Successfully loaded a total of {len(combined_df)} records from the last two months.")
+    return combined_df 
 
 # --- Plotting Functions ---
+
+def plot_monthly_mayo_comparison(df, output_dir):
+    """
+    Generates a grouped bar chart comparing mayonnaise preferences between months.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating monthly comparison plot for mayonnaise preference...")
+
+    # 1. Get the prepared data
+    comparison_data = calculate_mayo_distribution_by_month(df)
+
+    # 2. Create the plot using Seaborn's catplot for easy faceting
+    g = sns.catplot(
+        data=comparison_data,
+        x='item_name',
+        y='count',
+        hue='mayo_type',
+        col='month',  # This creates a separate subplot for each month
+        kind='bar',
+        palette='tab10',
+        height=6,
+        aspect=1.2
+    )
+
+    # 3. Add titles and labels
+    g.fig.suptitle('Monthly Comparison of Mayonnaise Preference per Burger', y=1.03, fontsize=16)
+    g.set_axis_labels("Burger Type", "Number of Items Sold")
+    g.set_titles("Month: {col_name}")
+    g.legend.set_title("Mayo Type")
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+
+    # 4. Save the plot
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "monthly_mayo_preference_comparison.png"
+    plt.savefig(plot_path)
+    plt.close()
+
+    logger.info(f"Monthly mayo comparison plot saved to: {plot_path}")
+
+def plot_monthly_beverage_comparison(df, output_dir):
+    """
+    Creates a faceted bar chart to compare beverage distribution between months,
+    ensuring correct alignment.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating monthly comparison plot for beverage distribution...")
+
+    # 1. Get the prepared data
+    comparison_data = calculate_beverage_distribution_by_month(df)
+
+    # 2. Create the plot using Seaborn's catplot
+    g = sns.catplot(
+        data=comparison_data,
+        x='category',
+        y='count',
+        hue='item_name',
+        col='month',
+        kind='bar',
+        palette='tab10',
+        height=7,
+        aspect=1.1,
+        order=['Aguas', 'Malteadas', 'Refrescos'] # This ensures alignment
+    )
+
+    # 3. Add titles and labels
+    g.fig.suptitle('Monthly Comparison of Beverage Sales', y=1.03, fontsize=18)
+    g.set_axis_labels("Beverage Category", "Number of Items Sold")
+    g.set_titles("Month: {col_name}")
+    
+    # --- FIX: Move the automatically generated legend outside the plot area ---
+    g.legend.set_title("Beverage Type")
+    g.legend.set_bbox_to_anchor((1.02, 0.5)) # Move legend to the right
+    
+    # Adjust layout to make space for the legend
+    plt.tight_layout(rect=[0, 0, 0.85, 0.97])
+
+    # 4. Save the plot
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "monthly_beverage_comparison.png"
+    plt.savefig(plot_path)
+    plt.close()
+
+    logger.info(f"Monthly beverage comparison plot saved to: {plot_path}")
+
+def create_top_products_plot(df, output_dir):
+    """
+    Generates a bar chart of the top 5 sold products for a given month
+    and saves it to a file.
+
+    Args:
+        df (pd.DataFrame): The DataFrame for a single month (already exploded).
+        output_dir (Path): The directory where the plot image will be saved.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating top products plot...")
+    
+    # 1. Get the top 5 items from the data
+    top_products_df = get_top_products(df, top_n=5)
+    
+    # 2. Create the plot
+    plt.figure(figsize=(10, 7))
+    ax = sns.barplot(
+        data=top_products_df, 
+        x='item_name', 
+        y='items_sold', 
+        hue='item_name', # Use hue to assign different colors
+        palette='viridis', 
+        legend=False
+    )
+    
+    # 3. Add labels on top of the bars
+    ax.bar_label(ax.containers[0])
+    
+    # 4. Add titles and labels for clarity
+    plt.title('Top 5 Most Sold Items This Month', fontsize=16)
+    plt.xlabel('Product', fontsize=12)
+    plt.ylabel('Number of Items Sold', fontsize=12)
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    
+    # 5. Save the plot to a file
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "top_5_products.png"
+    plt.savefig(plot_path)
+    plt.close() # Close the plot to free up memory
+    
+    logger.info(f"Top products plot saved to: {plot_path}")
+
+
 
 
 def plot_beverage_distribution(df, output_dir):
@@ -27,69 +203,56 @@ def plot_beverage_distribution(df, output_dir):
     counts_pivot = data_for_plot.pivot(index='category', columns='item_name', values='count').fillna(0)
     percentages_pivot = data_for_plot.pivot(index='category', columns='item_name', values='percentage').fillna(0)
 
-    # 3. Create the plot with the 'tab10' colormap
+    # 3. Create the plot
     ax = counts_pivot.plot(kind='bar', stacked=True, figsize=(12, 8), width=0.6, colormap='tab10')
 
-    # 4. Add percentage labels by looking up the correct percentage value
+    # 4. Add percentage labels
     for container in ax.containers:
-        # Get the item name for the current container (e.g., 'Coca Cola')
         item_name = container.get_label()
-        
         labels = []
         for i, bar in enumerate(container):
-            # Get the category name for the current bar (e.g., 'Refrescos y Aguas')
             category_name = counts_pivot.index[i]
-            
             try:
-                # Look up the percentage from the percentages_pivot DataFrame
                 percentage = percentages_pivot.loc[category_name, item_name]
-                if percentage > 5: # Only show label if segment is large enough
+                if percentage > 5:
                     labels.append(f'{percentage:.0f}%')
                 else:
                     labels.append('')
             except KeyError:
-                # This handles cases where a combination doesn't exist
                 labels.append('')
-                
         ax.bar_label(container, labels=labels, label_type='center', color='white', weight='bold')
 
-    # --- 5. Create Custom Grouped Legends ---
+    # 5. Create Custom Grouped Legends (this logic is dynamic)
     handles, labels = ax.get_legend_handles_labels()
     item_to_category = pd.Series(data_for_plot.category.values, index=data_for_plot.item_name).to_dict()
     
-    # Create a mapping of category to its legend items (handle and label)
     category_legends = {cat: [] for cat in data_for_plot['category'].unique()}
     for handle, label in zip(handles, labels):
         category = item_to_category.get(label)
         if category:
             category_legends[category].append((handle, label))
             
-    # Remove the default legend
     if ax.get_legend():
         ax.get_legend().remove()
 
-    # Add a new, custom legend for each category
-    legend_y_start = 1.02 # Starting vertical position for the first legend
+    legend_y_start = 1.02
     for category, items in category_legends.items():
         if not items: continue
-        
-        # Unzip the handles and labels for the current category
         cat_handles, cat_labels = zip(*items)
-        
         legend = ax.legend(cat_handles, cat_labels, title=f'-- {category} --', 
                            bbox_to_anchor=(1.02, legend_y_start), 
                            loc='upper left', 
                            title_fontsize='12',
                            fontsize='10')
         ax.add_artist(legend)
-        legend_y_start -= 0.3 # Adjust this value to change spacing between legends
+        legend_y_start -= 0.3
 
     # 6. Add titles and labels
     plt.title('Beverage Sales Distribution', fontsize=16)
     plt.xlabel('Beverage Category', fontsize=12)
     plt.ylabel('Number of Items Sold', fontsize=12)
     plt.xticks(rotation=0)
-    plt.tight_layout(rect=[0, 0, 0.80, 1]) # Adjust layout to make space for legends
+    plt.tight_layout(rect=[0, 0, 0.80, 1])
 
     # 7. Save the plot
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -222,31 +385,269 @@ def plot_daily_sales_trends(df, output_dir):
 
     logger.info(f"Daily sales trends plot saved to: {plot_path}")
 
+# Plot monthly comparisons
 
-
-# --- Main Orchestrator Function for this Module ---
-
-def generate_monthly_report(df, config, file_tag):
+def plot_daily_sales_comparison(df, output_dir):
     """
-    Orchestrates the entire monthly report generation process.
+    Generates a comparative line plot of daily customer traffic for two months.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating daily sales comparison plot...")
+
+    # 1. Get the daily metrics, prepared for comparison
+    daily_data = calculate_daily_sales_for_comparison(df)
+
+    # 2. Create the plot with a single Y-axis
+    plt.figure(figsize=(15, 8))
+    
+    # Use 'hue' to create a separate line for each month
+    ax = sns.lineplot(
+        data=daily_data, 
+        x='day_of_month', 
+        y='unique_receipts', 
+        hue='month',
+        palette=['gray', 'black'], 
+        marker='o'
+    )
+    
+    # 3. Add titles and formatting
+    ax.set_xlabel('Day of the Month', fontsize=12)
+    ax.set_ylabel('Number of Unique Receipts', fontsize=12)
+    plt.title('Daily Customer Traffic: Month-over-Month Comparison', fontsize=16)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend(title='Month')
+    plt.tight_layout()
+    
+    # 4. Save the plot
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "daily_sales_comparison.png"
+    plt.savefig(plot_path)
+    plt.close()
+
+    logger.info(f"Daily sales comparison plot saved to: {plot_path}")
+
+
+def plot_monthly_comparison_by_weekday(df, output_dir):
+    """
+    Generates a comparative line plot showing sales traffic by day of the week
+    for two different months.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating monthly comparison plot for sales by weekday...")
+
+    # 1. Get the prepared data
+    comparison_data = calculate_sales_by_day_for_comparison(df)
+
+    # 2. Filter out the 'Otro' category before plotting
+    comparison_data = comparison_data[comparison_data['order_category'] != 'Otro']
+
+    # 3. Create the plot
+    plt.figure(figsize=(14, 8))
+    
+    # Use hue for the month and style for the order category
+    ax = sns.lineplot(
+        data=comparison_data,
+        x='day_of_week',
+        y='count',
+        hue='month',          # Separates lines by month
+        style='order_category', # Creates different dashing for order types
+        palette=['red', 'blue'], # Sets the colors for each month
+        markers=True,
+        markersize=10,
+        dashes=True,
+        linewidth=2
+    )
+
+    # 4. Add titles and labels
+    plt.title('Monthly Comparison of Sales Traffic by Day', fontsize=18)
+    plt.xlabel('Day of the Week', fontsize=12)
+    plt.ylabel('Number of Unique Receipts', fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend(title='Month & Order Type')
+    plt.tight_layout()
+
+    # 5. Save the plot
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = output_dir / "monthly_comparison_by_weekday.png"
+    plt.savefig(plot_path)
+    plt.close()
+
+    logger.info(f"Monthly comparison plot saved to: {plot_path}")
+
+
+# Monthly report template
+
+def create_monthly_summary_report(df, output_dir):
+    """
+    Generates a comprehensive summary report in Markdown format for the last 
+    complete month, with detailed comparisons to the month prior.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing data for the last two months.
+        output_dir (Path): The directory to save the report file.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating monthly summary report...")
+
+    df = df.copy()
+    df['shifted_time'] = pd.to_datetime(df['shifted_time'])
+    df['month'] = df['shifted_time'].dt.strftime('%Y-%m')
+
+    # --- 1. Separate Data and Calculate KPIs ---
+    now = datetime.now()
+    report_month_date = now - relativedelta(months=1)
+    comparison_month_date = now - relativedelta(months=2)
+
+    report_month_tag = report_month_date.strftime('%Y-%m')
+    comparison_month_tag = comparison_month_date.strftime('%Y-%m')
+
+    report_month_df = df[df['month'] == report_month_tag]
+    comparison_month_df = df[df['month'] == comparison_month_tag]
+
+    def calculate_kpis(data):
+        if data.empty: return {'revenue': 0, 'receipts': 0}
+        return {'revenue': data['price'].sum(), 'receipts': data['receipt_number'].nunique()}
+
+    kpis_report = calculate_kpis(report_month_df)
+    kpis_comparison = calculate_kpis(comparison_month_df)
+
+    def pct_change(current, previous):
+        if previous == 0: return " (new)"
+        change = ((current - previous) / previous) * 100
+        return f" ({change:+.1f}%)"
+
+    revenue_change = pct_change(kpis_report['revenue'], kpis_comparison['revenue'])
+    receipts_change = pct_change(kpis_report['receipts'], kpis_comparison['receipts'])
+
+    # --- 2. Calculate Top 5 Products for Both Months ---
+    exploded_report_df = explode_combo_items_advanced(report_month_df)
+    exploded_comparison_df = explode_combo_items_advanced(comparison_month_df)
+    
+    top_5_report = get_top_products(exploded_report_df, 5)
+    top_5_comparison = get_top_products(exploded_comparison_df, 5)
+
+    # --- 3. Assemble the Report Content ---
+    report_content = f"""
+# Monthly Sales Report: {report_month_tag}
+
+This report analyzes sales performance for **{report_month_tag}** and compares it to **{comparison_month_tag}**.
+
+---
+
+## 📈 Monthly Performance Summary
+
+| Metric                      | Report Month ({report_month_tag}) | Comparison Month ({comparison_month_tag}) |
+| --------------------------- | --------------------------- | ----------------------------- |
+| **Total Revenue** | `${kpis_report['revenue']:,.2f}` **{revenue_change}** | `${kpis_comparison['revenue']:,.2f}`       |
+| **Total Unique Receipts** | `{kpis_report['receipts']:,}` **{receipts_change}** | `{kpis_comparison['receipts']:,}`       |
+
+---
+
+## 🍔 Top 5 Products Comparison
+
+| Rank | Top Products ({report_month_tag}) | Items Sold | | Top Products ({comparison_month_tag}) | Items Sold |
+| :---: | :--- | :---: | :---: | :--- | :---: |
+| **1** | {top_5_report.iloc[0]['item_name']} | {top_5_report.iloc[0]['items_sold']} | | {top_5_comparison.iloc[0]['item_name']} | {top_5_comparison.iloc[0]['items_sold']} |
+| **2** | {top_5_report.iloc[1]['item_name']} | {top_5_report.iloc[1]['items_sold']} | | {top_5_comparison.iloc[1]['item_name']} | {top_5_comparison.iloc[1]['items_sold']} |
+| **3** | {top_5_report.iloc[2]['item_name']} | {top_5_report.iloc[2]['items_sold']} | | {top_5_comparison.iloc[2]['item_name']} | {top_5_comparison.iloc[2]['items_sold']} |
+| **4** | {top_5_report.iloc[3]['item_name']} | {top_5_report.iloc[3]['items_sold']} | | {top_5_comparison.iloc[3]['item_name']} | {top_5_comparison.iloc[3]['items_sold']} |
+| **5** | {top_5_report.iloc[4]['item_name']} | {top_5_report.iloc[4]['items_sold']} | | {top_5_comparison.iloc[4]['item_name']} | {top_5_comparison.iloc[4]['items_sold']} |
+
+---
+
+## 📊 Visual Comparisons
+
+### Daily Customer Traffic
+
+![Daily Sales Comparison](./daily_sales_comparison.png)
+
+***Discussion:*** [This plot shows the daily customer traffic for both months.]
+
+### Sales Traffic by Day of the Week
+
+![Monthly Comparison by Weekday](./monthly_comparison_by_weekday.png)
+
+***Discussion:*** [This plot shows the sales traffic by day of the week for both months.]
+
+### Mayonnaise Preference per Burger
+
+![Monthly Mayo Comparison](./monthly_mayo_preference_comparison.png)
+
+***Discussion:*** [This plot shows the preference for mayonnaise on burgers for both months.]
+
+### Beverage Sales Distribution
+
+![Monthly Beverage Comparison](./monthly_beverage_comparison.png)
+
+***Discussion:*** [This plot shows the beverage sales distribution for both months.]
+"""
+
+    # --- 4. Save the Report ---
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_path = output_dir / f"monthly_summary_{report_month_tag}.md"
+    
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(report_content.strip())
+        
+    logger.info(f"Monthly summary report saved to: {report_path}")
+    return report_path
+
+
+
+
+# --- Main Function to Generate Monthly Report ---
+
+def generate_monthly_report(config):
+    """
+    Orchestrates the entire monthly report generation and delivery process.
     """
     logger = logging.getLogger(__name__)
     logger.info("--- Starting Monthly Report Generation ---")
-    
-    # 1. Prepare the data for reporting
-    cleaned_df = clean_data_for_reporting(df)
-    final_df = explode_combo_items_advanced(cleaned_df)
-    
-    # 2. Define output directory for this month's report
-    report_output_dir = config['project_dir'] / "reports" / f"monthly_report_{file_tag}"
-    
-    # 3. Generate all plots
 
-    plot_stacked_counts_with_percentage_labels(final_df, report_output_dir)
-    plot_beverage_distribution(final_df, report_output_dir)
-    plot_sales_by_day_of_week(final_df, report_output_dir)
-    plot_daily_sales_trends(final_df, report_output_dir)
+    # --- 1. Load Data ---
+    s3_bucket = config['s3_bucket']
+    two_months_df = request_monthly_data(s3_bucket)
+
+    if two_months_df.empty:
+        logger.warning("No data found for the last two months. Skipping monthly report.")
+        return
+
+    # --- 2. Prepare Data ---
+    # This step creates the two versions of the data we need for different analyses
+    cleaned_df = clean_data_for_reporting(two_months_df)
+    exploded_df = explode_combo_items_advanced(cleaned_df)
+
+    # --- 3. Define Output Paths and File Tags ---
+    report_month = datetime.now() - relativedelta(months=1)
+    file_tag = report_month.strftime('%Y-%m')
+    frequency = 'monthly'  # This is used for the report name and email subject
+    report_output_dir = config['project_dir'] / "reports" / f"monthly_report_{file_tag}"
+    report_output_dir.mkdir(parents=True, exist_ok=True)
+
+    # --- 4. Generate All Report Artifacts ---
+    logger.info("Generating plots...")
+    # These plots compare months, so they use the full two-month DataFrame
+    plot_monthly_beverage_comparison(cleaned_df, report_output_dir)
+    plot_monthly_mayo_comparison(cleaned_df, report_output_dir)
+    plot_monthly_comparison_by_weekday(cleaned_df, report_output_dir)
+    plot_daily_sales_comparison(cleaned_df, report_output_dir)
     
-    # (Future step: Call a function to generate the .md summary file here)
+    # This plot is for the most recent month's top products
+    report_month_df = exploded_df[exploded_df['shifted_time'].dt.strftime('%Y-%m') == file_tag]
+    create_top_products_plot(report_month_df, report_output_dir)
+
+    logger.info("Generating summary document...")
+    report_md_path = create_monthly_summary_report(cleaned_df, report_output_dir)
     
-    logger.info(f"--- Monthly Report generated successfully in: {report_output_dir} ---")
+    # --- 5. Deliver the Final Report ---
+    if report_md_path:
+        logger.info("Converting report to PDF...")
+        pdf_path = convert_md_to_pdf(report_md_path, report_output_dir)
+        
+        if pdf_path:
+            logger.info("Sending report by email...")
+            # Get recipient from config for better practice
+            recipient_email = config.get("recipient_email", "default.recipient@example.com")
+            send_report_by_email(pdf_path, recipient_email, file_tag, frequency)
+
+    logger.info(f"--- Monthly Report process completed. Artifacts are in: {report_output_dir} ---")

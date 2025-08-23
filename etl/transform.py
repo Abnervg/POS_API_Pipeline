@@ -51,6 +51,7 @@ def flattening_table_mine(opened_data):
                 "item_name":      line.get("item_name"),
                 "cost":           line.get("cost"),
                 "price":          line.get("price"),
+                "total_money":    line.get("total_money"),
                 "modifiers":      mods,
                 "payment_type":   payment_types
             })
@@ -91,7 +92,7 @@ def flatten_with_pandas(receipts_data):
     # 3. SELECT AND REORDER FINAL COLUMNS
     final_columns = [
         "receipt_number", "datetime", "date", "time", "order_type",
-        "item_name", "total_money", "modifiers", "payment_type"
+        "item_name", "price", "total_money", "modifiers", "payment_type"
     ]
     # Note: I've assumed your cost/price is called 'total_money' as an example
     # You would select your actual cost/price columns here.
@@ -148,7 +149,7 @@ def homogenize_order_types_optimized(df):
     ]
     
     # 3. Apply the conditions.
-    # If no condition is met, it uses the original value as the default.
+    # If no condition is met, it returns the original value as the default.
     cleaned_df["order_type"] = np.select(
         conditions, 
         choices, 
@@ -196,4 +197,29 @@ def time_slots(cleaned_data):
                             include_lowest=True)
     
     return cleaned_data
+
+def run_transform(receipts, items):
+    """
+    Orchestrates the entire data transformation process on the provided data.
+    
+    Args:
+        receipts (list): A list of receipt dictionaries.
+        items (list): A list of item dictionaries.
+        
+    Returns:
+        pd.DataFrame: The final, transformed DataFrame.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("--- Starting Transform Step ---")
+    
+    # The function receives the raw data lists directly
+    json_files = (receipts, items)
+    
+    # Call each of your transformation steps in order
+    flat_table = flattening_table_mine(json_files)
+    flat_table = homogenize_order_types(flat_table)
+    flat_table = time_slots(flat_table)
+    
+    logger.info("--- Finished Transform Step ---")
+    return flat_table
 

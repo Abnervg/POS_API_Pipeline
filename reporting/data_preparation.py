@@ -2,7 +2,77 @@ import logging
 import pandas as pd
 import re
 
+
+
 # Data preparation functions for reporting
+
+def get_top_products(df, top_n=5):
+    """
+    Counts how many times each item appears in the DataFrame and returns the top N.
+    This function should be used with the 'exploded' DataFrame for accurate counts.
+
+    Args:
+        df (pd.DataFrame): The DataFrame containing item sales data.
+        top_n (int): The number of top products to return.
+
+    Returns:
+        pd.DataFrame: A DataFrame with the top N products and their sales counts.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info(f"Calculating top {top_n} sold products...")
+
+    # .value_counts() is the most efficient way to count and sort items
+    top_items_series = df['item_name'].value_counts().head(top_n)
+    
+    # Convert the resulting Series to a DataFrame
+    top_items_df = top_items_series.reset_index()
+    
+    # Rename the columns for clarity
+    top_items_df.columns = ['item_name', 'items_sold']
+    
+    return top_items_df
+
+def calculate_sales_by_day_for_comparison(df):
+    """
+    Prepares data for a two-month comparison by grouping sales by month,
+    day of the week, and order category.
+    """
+    df = df.copy()
+    df['shifted_time'] = pd.to_datetime(df['shifted_time'], errors='coerce')
+    df.dropna(subset=['shifted_time'], inplace=True)
+    
+    # Create necessary columns for grouping
+    df['month'] = df['shifted_time'].dt.strftime('%Y-%m')
+    df['day_of_week'] = df['shifted_time'].dt.day_name()
+    
+    # Convert 'day_of_week' to an ordered Categorical type to ensure correct sorting
+    day_order = ['Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    df['day_of_week'] = pd.Categorical(df['day_of_week'], categories=day_order, ordered=True)
+
+    # Create Order Type Categories
+    def assign_order_category(order_type):
+        if not isinstance(order_type, str): return 'Otro'
+        if 'mesa' in order_type.lower(): return 'Restaurante'
+        if 'domicilio' in order_type.lower(): return 'A domicilio'
+        if 'llevar' in order_type.lower(): return 'Para llevar'
+        return 'Otro'
+
+    df['order_category'] = df['order_type'].apply(assign_order_category)
+
+    # DEBUGGING: Print unique order types and their categories
+    # Filter for the 'Otro' category and find the unique original values
+    #otro_values = df[df['order_category'] == 'Otro']['order_type'].unique()
+
+    # Print the results
+    #print("The following order_type values are being categorized as 'Otro':")
+    #print(otro_values)
+    
+    # Group by all three columns and count unique receipts
+    categorized_sales = df.groupby(['month', 'day_of_week', 'order_category'], observed=False)['receipt_number'].nunique().reset_index()
+    categorized_sales.rename(columns={'receipt_number': 'count'}, inplace=True)
+    
+    return categorized_sales
+
 def clean_data_for_reporting(df):
     """
     Cleans the DataFrame for reporting purposes.
@@ -38,7 +108,6 @@ def clean_data_for_reporting(df):
     # 3. Feature Engineering: Create new columns for analysis
     df['day_of_week'] = df['datetime'].dt.day_name()
     df['hour_of_day'] = df['datetime'].dt.hour
-    
     logger.info("Data cleaning and feature engineering complete.")
     return df
 
@@ -129,6 +198,36 @@ def explode_combo_items_advanced(df):
     return final_df
 
 #Helper function to plot mayonnaise preferences
+def calculate_mayo_distribution_by_month(df):
+    """
+    Calculates the count of each mayonnaise type for each burger, grouped by month.
+    """
+    df = df.copy()
+    df['shifted_time'] = pd.to_datetime(df['shifted_time'], errors='coerce')
+    df.dropna(subset=['shifted_time'], inplace=True)
+
+    # 1. Filter for burgers and then for Mayonesa modifiers
+    all_burgers = df[df['item_name'].str.contains("Burger|Smash", case=False, na=False)]
+    mayo_burgers = all_burgers[all_burgers['modifiers'].str.contains("Mayonesa", case=False, na=False)].copy()
+
+    # 2. Extract the specific mayo type
+    mayo_burgers['mayo_type'] = mayo_burgers['modifiers'].str.extract(r'Mayonesa\((.*?)\)')
+    
+    # 3. Standardize the mayo types
+    def standardize_mayo(mayo_name):
+        if isinstance(mayo_name, str) and "sin mayonesa" in mayo_name.lower():
+            return "Natural"
+        return mayo_name
+        
+    mayo_burgers['mayo_type'] = mayo_burgers['mayo_type'].apply(standardize_mayo)
+
+    # 4. Create a 'month' column for grouping
+    mayo_burgers['month'] = mayo_burgers['shifted_time'].dt.strftime('%Y-%m')
+
+    # 5. Group by month, burger name, and mayo type to get the counts
+    mayo_counts = mayo_burgers.groupby(['month', 'item_name', 'mayo_type']).size().reset_index(name='count')
+    
+    return mayo_counts
 
 def calculate_mayo_percentages_and_counts(df):
     """
@@ -143,9 +242,18 @@ def calculate_mayo_percentages_and_counts(df):
 
     mayo_burgers = all_burgers[all_burgers['modifiers'].str.contains("Mayonesa", case=False, na=False)].copy()
 
+
     # Extract the specific mayo type
 
     mayo_burgers['mayo_type'] = mayo_burgers['modifiers'].str.extract(r'Mayonesa\((.*?)\)')
+
+    def standardize_mayotypes(df):
+        for mod in df["mayo_type"]:
+            lowed = mod.lower()
+            if lowed.str.contains(
+                "sin mayonesa"):
+                return "Natural"
+    mayo_burgers.apply(standardize_mayotypes)
 
     # Get the count of each mayo type per burger
 
@@ -181,7 +289,7 @@ def calculate_beverage_distribution(df):
             return 'Aguas'
         else:
             return 'Refrescos'
-
+    
     beverages_df['category'] = beverages_df['item_name'].apply(assign_category)
 
     # 3. Get the count of each item within each category
@@ -193,6 +301,38 @@ def calculate_beverage_distribution(df):
     
     return beverage_counts
 
+def calculate_beverage_distribution_by_month(df):
+    """
+    Categorizes beverages and calculates the raw count for each item,
+    grouped by month.
+    """
+    # 1. Filter for all beverage items
+    beverage_keywords = "Refresco|Malteada|Coca|Squirt|Agua|Manzanita"
+    beverages_df = df[df['item_name'].str.contains(beverage_keywords, case=False, na=False)].copy()
+
+    # --- Standardization Step for Water ---
+    def standardize_beverage_names(name):
+        if not isinstance(name, str): return name
+        name_lower = name.lower()
+        if 'mineral' in name_lower:
+            return 'Agua Mineral'
+        if 'natural' in name_lower or 'embotellada' in name_lower:
+            return 'Agua Embotellada'
+        return name
+    beverages_df['item_name'] = beverages_df['item_name'].apply(standardize_beverage_names)
+    
+    # 2. Create 'month' and 'category' columns
+    beverages_df['month'] = pd.to_datetime(beverages_df['shifted_time']).dt.strftime('%Y-%m')
+    def assign_category(item_name):
+        if 'malteada' in item_name.lower(): return 'Malteadas'
+        elif 'agua' in item_name.lower(): return 'Aguas'
+        else: return 'Refrescos'
+    beverages_df['category'] = beverages_df['item_name'].apply(assign_category)
+
+    # 3. Get the counts for existing data
+    beverage_counts = beverages_df.groupby(['month', 'category', 'item_name']).size().reset_index(name='count')
+    
+    return beverage_counts
 
 #Calculate sells by day of week
 def calculate_sales_by_day_of_week(df):
@@ -257,3 +397,23 @@ def calculate_daily_sales_metrics(df):
     
     return daily_metrics
 
+def calculate_daily_sales_for_comparison(df):
+    """
+    Calculates total sales and unique receipts for each day, keeping the
+    month separate for comparison.
+    """
+    df = df.copy()
+    df['shifted_time'] = pd.to_datetime(df['shifted_time'], errors='coerce')
+    df.dropna(subset=['shifted_time'], inplace=True)
+    
+    # Create 'month' and 'day' columns for grouping
+    df['month'] = df['shifted_time'].dt.strftime('%Y-%m')
+    df['day_of_month'] = df['shifted_time'].dt.day
+    
+    # Group by both month and day and aggregate
+    daily_metrics = df.groupby(['month', 'day_of_month']).agg(
+        total_sales=('price', 'sum'),
+        unique_receipts=('receipt_number', 'nunique')
+    ).reset_index()
+    
+    return daily_metrics

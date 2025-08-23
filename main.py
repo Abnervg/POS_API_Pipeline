@@ -5,89 +5,89 @@ import os
 from dotenv import load_dotenv
 import pandas as pd
 
-# Import your custom functions at the top
-from etl.extract import get_monthly_time_range, fetch_api_data, save_raw_data
-from etl.transform import load_raw_data, flattening_table_mine, homogenize_order_types, time_slots
-from etl.load import load_to_curated_folder, load_to_aws_bucket
+# Import all your custom functions at the top for clarity
+from etl.extract import (
+    fetch_incremental_data, 
+    fetch_all_historical_data, 
+    read_last_timestamp, 
+    update_last_timestamp,
+    save_raw_data
+)
+from etl.transform import run_transform # Assuming this is your main transform orchestrator
+from etl.load import load_historical_data_from_local, merge_and_overwrite_monthly_data
 from reporting.monthly_report import generate_monthly_report
-from reporting.data_preparation import clean_data_for_reporting, explode_combo_items_advanced
+from reporting.cumulative_report import generate_cumulative_report
 
-def run_extract(config):
-    """Runs the entire data extraction process."""
+# --- Main Orchestrator for the Automated Daily Run ---
+def run_incremental_etl(config):
+    """
+    Orchestrates the complete daily incremental ETL process.
+    """
     logger = logging.getLogger(__name__)
-    logger.info("--- Starting Extract Step ---")
+    logger.info("--- Starting Daily Incremental ETL Run ---")
+
+    state_file = config['project_dir'] / "config" / "etl_state.json"
+    s3_bucket = config['s3_bucket']
+
+    try:
+        # 1. Read the last known timestamp from the state file
+        last_timestamp = read_last_timestamp(state_file)
+
+        # 2. Extract only new data since that timestamp
+        new_receipts, new_items = fetch_incremental_data(
+            config['base_url'], config['api_key'], last_timestamp
+        )
+
+        if not new_receipts:
+            logger.info("No new receipts found. Pipeline finished for today.")
+            return
+
+        # 3. Transform only the new data
+        new_df = run_transform(new_receipts, new_items)
+
+        # 4. Merge the new data with historical data in S3
+        merge_and_overwrite_monthly_data(new_df, s3_bucket)
+
+        # 5. Update the state file with the newest timestamp from this batch
+        update_last_timestamp(state_file, new_receipts)
+
+        logger.info("--- Daily Incremental ETL Run Completed Successfully ---")
+
+    except Exception as e:
+        logger.error(f"Incremental ETL pipeline failed: {e}")
+        # The state file is NOT updated on failure, ensuring we retry from the same point
+        raise
+
+
+# --- Orchestrators for Manual / One-Time Tasks ---
+
+def run_full_historical_extract(config):
+    """Extracts all historical data from the API and saves it locally."""
+    logger = logging.getLogger(__name__)
+    logger.info("--- Starting Full Historical Data Extraction ---")
     
-    time_range = get_monthly_time_range()
-    receipts, items = fetch_api_data(config['base_url'], config['api_key'], time_range)
+    all_receipts, all_items = fetch_all_historical_data(config['base_url'], config['api_key'])
     
     output_dir = config['project_dir'] / "data" / "raw"
-    file_tag = time_range[0][:7]
-    save_raw_data(receipts, items, output_dir, file_tag)
+    date_str = pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d')
+    file_tag = f"historical_extract_{date_str}"
+    save_raw_data(all_receipts, all_items, output_dir, file_tag)
     
-    logger.info("--- Finished Extract Step ---")
-    return output_dir, file_tag
+    logger.info("--- Finished Full Historical Data Extraction ---")
 
-def run_transform(raw_data_dir, file_tag):
-    """Runs the entire data transformation process."""
-    logger = logging.getLogger(__name__)
-    logger.info("--- Starting Transform Step ---")
-    
-    json_files = load_raw_data(raw_data_dir, file_tag)
-    flat_table = flattening_table_mine(json_files)
-    flat_table = homogenize_order_types(flat_table)
-    flat_table = time_slots(flat_table)
-    
-    logger.info("--- Finished Transform Step ---")
-    return flat_table
-
-def run_load(processed_df, config, file_tag):
-    """Runs the entire data loading process."""
-    logger = logging.getLogger(__name__)
-    logger.info("--- Starting Load Step ---")
-    
-    # Save to local curated folder
-    curated_dir = config['project_dir'] / "data" / "curated"
-    load_to_curated_folder(processed_df, curated_dir, file_tag)
-    
-    # Save to S3
-    load_to_aws_bucket(processed_df, config['s3_bucket'], file_tag)
-    
-    logger.info("--- Finished Load Step ---")
-
-def run_report(config, file_tag):
-    """Orchestrates the monthly report generation."""
-    logger = logging.getLogger(__name__)
-    logger.info("--- Starting Monthly Report Generation ---")
-
-    # Load the final, curated data for reporting
-    curated_dir = config['project_dir'] / "data" / "curated"
-    curated_file_path = curated_dir / f"curated_data_{file_tag}.csv"
-    if not curated_file_path.exists():
-        raise FileNotFoundError(f"Curated data file not found: {curated_file_path}. Run transform/load steps first.")
-    
-    final_df = pd.read_csv(curated_file_path)
-
-    # Call the main report generation function
-    generate_monthly_report(final_df, config, file_tag)
-
-    logger.info("--- Finished Monthly Report Generation ---")
 
 def main():
     # --- CONFIGURE LOGGING ---
-    log_dir = Path(__file__).parent / "logs"
-    log_dir.mkdir(exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_dir / "etl.log"),
-            logging.StreamHandler()
-        ]
-    )
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     # --- SET UP ARGUMENT PARSER ---
     parser = argparse.ArgumentParser(description="Run the ETL and Reporting pipeline.")
-    parser.add_argument('--step', choices=['extract', 'transform', 'load', 'report', 'all'], default='all')
+    parser.add_argument(
+        '--step', 
+        choices=['daily_run', 'full_extract', 'load_historical', 'monthly_report', 'cumulative_report', 'report'], 
+        required=True,
+        help='Specify which pipeline step to run.'
+    )
     args = parser.parse_args()
 
     # --- LOAD CONFIGURATION ---
@@ -98,32 +98,28 @@ def main():
         "project_dir": project_dir,
         "base_url": os.getenv("BASE_URL"),
         "api_key": os.getenv("POS_API_KEY"),
-        "s3_bucket": os.getenv("S3_BUCKET_NAME")
+        "s3_bucket": os.getenv("S3_BUCKET_NAME"),
+        "recipient_email": os.getenv("RECIPIENT_EMAIL"),
+        "smtp_host": os.getenv("SMTP_HOST"),
+        "smtp_port": os.getenv("SMTP_PORT")
     }
-    if not all([config['base_url'], config['api_key'], config['s3_bucket']]):
+    if not all(config.values()):
         raise ValueError("One or more required environment variables are not set.")
 
     # --- RUN STEPS BASED ON ARGUMENT ---
-    if args.step in ['extract', 'all']:
-        raw_dir, file_tag = run_extract(config)
-    
-    if args.step in ['transform', 'all']:
-        if 'raw_dir' not in locals(): # Ensure dependencies exist if running step alone
-            file_tag = get_monthly_time_range()[0][:7]
-            raw_dir = config['project_dir'] / "data" / "raw"
-        transformed_df = run_transform(raw_dir, file_tag)
-    
-    if args.step in ['load', 'all']:
-        if 'transformed_df' not in locals():
-            file_tag = get_monthly_time_range()[0][:7]
-            raw_dir = config['project_dir'] / "data" / "raw"
-            transformed_df = run_transform(raw_dir, file_tag)
-        run_load(transformed_df, config, file_tag)
-        
-    if args.step in ['report', 'all']:
-        if 'file_tag' not in locals():
-            file_tag = get_monthly_time_range()[0][:7]
-        run_report(config, file_tag)
+    if args.step == 'daily_run':
+        run_incremental_etl(config)
+    elif args.step == 'full_extract':
+        run_full_historical_extract(config)
+    elif args.step == 'load_historical':
+        load_historical_data_from_local(config['project_dir'] / "data" / "raw", config['s3_bucket'])
+    elif args.step == 'monthly_report':
+        generate_monthly_report(config)
+    elif args.step == 'cumulative_report':
+        generate_cumulative_report(config)
+    elif args.step == 'report':
+        generate_cumulative_report(config)
+        generate_monthly_report(config)
 
 if __name__ == "__main__":
     main()
