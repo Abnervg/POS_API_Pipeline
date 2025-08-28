@@ -41,6 +41,9 @@ def load_to_aws_bucket(flat_table, bucket_name, file_tag):
     s3.put_object(Bucket=bucket_name, Key=f"curated_data_{file_tag}.parquet", Body=parquet_buffer.getvalue())
     logging.info(f"Curated data uploaded to S3 bucket {bucket_name} with key curated_data_{file_tag}.parquet")
 
+# ==============================================================================
+# The NEW, UNIFIED function for saving data to S3
+# ==============================================================================
 def save_to_s3_partitioned(df_to_save, s3_bucket):
     """
     Saves a DataFrame to S3, partitioning it by year and month with a
@@ -62,7 +65,7 @@ def save_to_s3_partitioned(df_to_save, s3_bucket):
     for col in df_to_save.select_dtypes(include=['object']).columns:
         df_to_save[col] = df_to_save[col].astype('string')
 
-    # 2. Create a 'year_month' column to group by
+    # 2. Create a temporary 'year_month' column to group by
     df_to_save['year_month'] = df_to_save['shifted_time'].dt.strftime('%Y-%m')
 
     # 3. Loop through each month and save it as a single file
@@ -81,6 +84,11 @@ def save_to_s3_partitioned(df_to_save, s3_bucket):
         monthly_data.to_parquet(s3_path_for_month, index=False)
 
     logger.info("Finished saving all partitioned data to S3.")
+
+
+# ==============================================================================
+# The function to orchestrate the one-time historical load
+# ==============================================================================
 
 def load_historical_data_from_local(local_raw_dir, s3_bucket):
     """
@@ -121,6 +129,11 @@ def load_historical_data_from_local(local_raw_dir, s3_bucket):
     save_to_s3_partitioned(historical_df, s3_bucket)
     logger.info("--- Finished historical data load ---")
 
+
+# ==============================================================================
+# The function for the daily incremental update
+# ==============================================================================
+
 def merge_and_overwrite_monthly_data(new_df, s3_bucket):
     """
     Loads the current month's data from S3, merges new data, and then
@@ -153,4 +166,3 @@ def merge_and_overwrite_monthly_data(new_df, s3_bucket):
     # 4. Call the unified save function to write the updated data back
     save_to_s3_partitioned(combined_df, s3_bucket)
     logger.info("Finished merging and loading data for the current month to S3.")
-
