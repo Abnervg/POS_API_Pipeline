@@ -315,7 +315,7 @@ def fetch_incremental_data(base_url, api_key, last_timestamp):
         raise
 
     # --- 2. Fetch Latest Receipts using only the 'limit' parameter ---
-    params = {'limit': 175}
+    params = {'limit': 175,'updated_at_min': last_timestamp}  # Fetch the latest 175 receipts since the last timestamp
     receipts_url = f"{base_url}/receipts"
     
     logger.info(f"Fetching latest 175 receipts to check for new data...")

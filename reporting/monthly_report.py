@@ -647,7 +647,7 @@ def generate_monthly_report(config):
         if pdf_path:
             logger.info("Sending report by email...")
             # Get recipient from config for better practice
-            recipient_email = config.get("recipient_email", "default.recipient@example.com")
-            send_report_by_email(pdf_path, recipient_email, file_tag, frequency)
+            #recipient_email = config.get("recipient_email", "default.recipient@example.com")
+            #send_report_by_email(pdf_path, recipient_email, file_tag, frequency)
 
     logger.info(f"--- Monthly Report process completed. Artifacts are in: {report_output_dir} ---")

@@ -5,6 +5,7 @@ import json
 
 #Import transform functions
 from etl.transform import homogenize_order_types, time_slots, flattening_table_mine
+from etl.extract import update_last_timestamp
 
 #Define output directory for curated data
 app_path = Path(__file__).parent
@@ -60,12 +61,13 @@ def save_to_s3_partitioned(df_to_save, s3_bucket):
         logger.warning("Input DataFrame is empty. Nothing to save.")
         return
 
-    # 1. Ensure a consistent schema before saving
+    # --- FIX: Ensure a consistent schema before saving ---
     df_to_save['shifted_time'] = pd.to_datetime(df_to_save['shifted_time'], errors='coerce')
+    # Convert all object columns to a standard 'string' type to prevent schema conflicts.
     for col in df_to_save.select_dtypes(include=['object']).columns:
         df_to_save[col] = df_to_save[col].astype('string')
 
-    # 2. Create a temporary 'year_month' column to group by
+    # 2. Create a 'year_month' column to group by
     df_to_save['year_month'] = df_to_save['shifted_time'].dt.strftime('%Y-%m')
 
     # 3. Loop through each month and save it as a single file
@@ -75,9 +77,12 @@ def save_to_s3_partitioned(df_to_save, s3_bucket):
     for month_tag in unique_months:
         year, month = month_tag.split('-')
         
+        # Filter the DataFrame for the current month
         monthly_data = df_to_save[df_to_save['year_month'] == month_tag].copy()
-        monthly_data.drop(columns=['year_month'], inplace=True) # Drop helper column
+        # Drop the helper column before saving
+        monthly_data.drop(columns=['year_month'], inplace=True)
         
+        # Define the specific path for this month's single file
         s3_path_for_month = f"s3://{s3_bucket}/curated_data/year={year}/month={month}/data.parquet"
         
         logger.info(f"Uploading {len(monthly_data)} records for {month_tag} to {s3_path_for_month}")
@@ -90,7 +95,7 @@ def save_to_s3_partitioned(df_to_save, s3_bucket):
 # The function to orchestrate the one-time historical load
 # ==============================================================================
 
-def load_historical_data_from_local(local_raw_dir, s3_bucket):
+def load_historical_data_from_local(local_raw_dir, etl_state_file_dir, s3_bucket):
     """
     Loads all historical raw JSON data from a local folder, transforms it,
     and then calls the unified save function.
@@ -127,6 +132,11 @@ def load_historical_data_from_local(local_raw_dir, s3_bucket):
     
     # 3. The final step is to call the new, unified save function
     save_to_s3_partitioned(historical_df, s3_bucket)
+
+    # 4. Find the latest timestamp from the raw data and update the state file
+    if all_receipts:
+        state_file_path = etl_state_file_dir
+        update_last_timestamp(state_file_path, all_receipts)
     logger.info("--- Finished historical data load ---")
 
 
@@ -136,8 +146,8 @@ def load_historical_data_from_local(local_raw_dir, s3_bucket):
 
 def merge_and_overwrite_monthly_data(new_df, s3_bucket):
     """
-    Loads the current month's data from S3, merges new data, and then
-    calls the unified save function.
+    Loads monthly data from S3, merges new data, and overwrites the files.
+    This function can handle new data that spans multiple months.
     """
     logger = logging.getLogger(__name__)
     
@@ -145,24 +155,51 @@ def merge_and_overwrite_monthly_data(new_df, s3_bucket):
         logger.info("No new data to load. Skipping merge process.")
         return
 
-    # 1. Prepare new data and determine the month to update
+    # 1. Prepare the new DataFrame
     new_df['shifted_time'] = pd.to_datetime(new_df['shifted_time'], errors='coerce')
     new_df.dropna(subset=['shifted_time'], inplace=True)
-    current_month_tag = new_df['shifted_time'].dt.strftime('%Y-%m').iloc[0]
-    year, month = current_month_tag.split('-')
 
-    # 2. Load the existing data for this month
-    s3_path = f"s3://{s3_bucket}/curated_data/year={year}/month={month}/data.parquet"
-    try:
-        historical_df = pd.read_parquet(s3_path)
-        combined_df = pd.concat([historical_df, new_df], ignore_index=True)
-    except FileNotFoundError:
-        combined_df = new_df
+    # 2. Find all unique months in the new data (e.g., ['2025-08', '2025-09'])
+    new_df['year_month'] = new_df['shifted_time'].dt.strftime('%Y-%m')
+    unique_months_in_new_data = new_df['year_month'].unique()
 
-    # 3. Deduplicate
-    combined_df.sort_values(by='shifted_time', ascending=False, inplace=True)
-    combined_df.drop_duplicates(subset=['receipt_number', 'item_name'], keep='first', inplace=True)
+    logger.info(f"New data spans the following months: {unique_months_in_new_data}")
 
-    # 4. Call the unified save function to write the updated data back
-    save_to_s3_partitioned(combined_df, s3_bucket)
-    logger.info("Finished merging and loading data for the current month to S3.")
+    # 3. Loop through each month and process it individually
+    for month_tag in unique_months_in_new_data:
+        year, month = month_tag.split('-')
+        
+        # Filter the new data for only the current month in the loop
+        monthly_data_to_add = new_df[new_df['year_month'] == month_tag]
+
+        # Define the S3 path for this specific month's data
+        s3_path = f"s3://{s3_bucket}/curated_data/year={year}/month={month}/data.parquet"
+        logger.info(f"Updating data for {month_tag} at path: {s3_path}")
+
+        try:
+            # Load existing data for this month from S3
+            historical_df = pd.read_parquet(s3_path)
+            logger.info(f"Loaded {len(historical_df)} existing records for {month_tag}.")
+            combined_df = pd.concat([historical_df, monthly_data_to_add], ignore_index=True)
+        except FileNotFoundError:
+            logger.info(f"No existing data found for {month_tag}. Starting with new data.")
+            combined_df = monthly_data_to_add
+
+        # Deduplicate the combined data for this month
+        combined_df.sort_values(by='shifted_time', ascending=False, inplace=True)
+        combined_df.drop_duplicates(subset=['receipt_number', 'item_name'], keep='first', inplace=True)
+
+        # Enforce a consistent schema before saving
+        for col in combined_df.select_dtypes(include=['object']).columns:
+            combined_df[col] = combined_df[col].astype('string')
+        
+        # IMPORTANT: Drop the helper column from the final DataFrame before saving
+        # but keep it in the loop for filtering
+        final_df_to_save = combined_df.drop(columns=['year_month'])
+
+        # Save the updated monthly dataset back to S3
+        logger.info(f"Uploading {len(final_df_to_save)} total records for {month_tag} to S3.")
+        final_df_to_save.to_parquet(s3_path, index=False)
+
+    logger.info("Finished merging and loading all new data to S3.")
+

@@ -112,7 +112,7 @@ def main():
     elif args.step == 'full_extract':
         run_full_historical_extract(config)
     elif args.step == 'load_historical':
-        load_historical_data_from_local(config['project_dir'] / "data" / "raw", config['s3_bucket'])
+        load_historical_data_from_local(config['project_dir'] / "data" / "raw", config['project_dir'] / "config" / "etl_state.json", config['s3_bucket'])
     elif args.step == 'monthly_report':
         generate_monthly_report(config)
     elif args.step == 'cumulative_report':
