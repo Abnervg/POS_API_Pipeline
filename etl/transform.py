@@ -94,8 +94,6 @@ def flatten_with_pandas(receipts_data):
         "receipt_number", "datetime", "date", "time", "order_type",
         "item_name", "price", "total_money", "modifiers", "payment_type"
     ]
-    # Note: I've assumed your cost/price is called 'total_money' as an example
-    # You would select your actual cost/price columns here.
     df_final = df.reindex(columns=final_columns)
 
     return df_final

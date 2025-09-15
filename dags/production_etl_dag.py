@@ -30,7 +30,7 @@ def check_if_first_day_of_month(**kwargs):
 with DAG(
     dag_id="daily_etl_and_monthly_reporting",
     start_date=pendulum.datetime(2025, 7, 25, tz="America/Mexico_City"),
-    schedule="0 7 * * *",  # Runs daily at 7 AM UTC (1 AM your local time)
+    schedule="0 7 * * *",  # Runs daily at 7 AM UTC (1 AM local time)
     catchup=False,
     tags=["production", "etl", "reporting"],
 ) as dag:
