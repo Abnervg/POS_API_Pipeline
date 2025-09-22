@@ -3,6 +3,9 @@ from pathlib import Path
 import pandas as pd
 import json
 
+#import the predefined schema
+from schemas import DEFINED_SCHEMA
+
 #Import transform functions
 from etl.transform import homogenize_order_types, time_slots, flattening_table_mine
 from etl.extract import update_last_timestamp
@@ -57,12 +60,14 @@ def save_to_s3_partitioned(df_to_save, s3_bucket):
         logger.warning("Input DataFrame is empty. Nothing to save.")
         return
 
-    # --- Ensure a consistent schema before saving ---
+    # --- Ensure data types are compatible before applying the schema ---
     df_to_save['shifted_time'] = pd.to_datetime(df_to_save['shifted_time'], errors='coerce')
+    df_to_save['datetime'] = pd.to_datetime(df_to_save['datetime'], errors='coerce')
+    
     for col in df_to_save.select_dtypes(include=['object']).columns:
         df_to_save[col] = df_to_save[col].astype('string')
 
-    # Create a 'year_month' helper column
+    # Create a 'year_month' helper column for partitioning logic
     df_to_save['year_month'] = df_to_save['shifted_time'].dt.strftime('%Y-%m')
 
     # Loop through each month and save it as a single file
@@ -74,12 +79,27 @@ def save_to_s3_partitioned(df_to_save, s3_bucket):
         
         monthly_data = df_to_save[df_to_save['year_month'] == month_tag].copy()
         monthly_data.drop(columns=['year_month'], inplace=True)
+        
+        # --- **CRITICAL STEP:** Reorder columns to match the schema ---
+        # This prevents errors if the DataFrame columns are in a different order.
+        try:
+            ordered_columns = [field.name for field in DEFINED_SCHEMA]
+            monthly_data = monthly_data[ordered_columns]
+        except KeyError as e:
+            logger.error(f"A column required by the schema is missing: {e}")
+            continue # Skip this month if data is malformed
 
-        # Define the S3 path for this month's file (partitioned by folder)
+        # Define the S3 path for this month's file
         s3_path_for_month = f"s3://{s3_bucket}/curated_data/year={year}/month={month}/data.parquet"
         
         logger.info(f"Uploading {len(monthly_data)} records for {month_tag} to {s3_path_for_month}")
-        monthly_data.to_parquet(s3_path_for_month, index=False)
+
+
+        monthly_data.to_parquet(
+        s3_path_for_month,
+        schema=DEFINED_SCHEMA, # <-- Use the imported schema
+        index=False
+        )
 
     logger.info("Finished saving all partitioned data to S3.")
 
@@ -188,8 +208,16 @@ def merge_and_overwrite_monthly_data(new_df, s3_bucket):
         # Drop helper column
         final_df_to_save = combined_df.drop(columns=['year_month'])
 
-        # Save back to S3
+        # Reorder columns to match the schema exactly
+        ordered_columns = [field.name for field in DEFINED_SCHEMA]
+        final_df_to_save = final_df_to_save[ordered_columns]
+
+        # Save back to S3 WITH the enforced schema
         logger.info(f"Uploading {len(final_df_to_save)} total records for {month_tag} to S3.")
-        final_df_to_save.to_parquet(s3_path, index=False)
+        final_df_to_save.to_parquet(
+            s3_path,
+            schema=DEFINED_SCHEMA, # This is the critical change
+            index=False
+        )
 
     logger.info("Finished merging and loading all new data to S3.")

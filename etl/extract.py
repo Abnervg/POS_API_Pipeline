@@ -41,7 +41,7 @@ def get_monthly_time_range(tz_name="America/Mexico_City"):
     return utc_start, utc_end
 
 # Fetch all historical data from the API
-def fetch_all_historical_data(base_url, api_key, start_date="2025-02-20T00:00:00.000Z", end_date="2025-08-25T04:52:31.000Z"): # Here it goes the last date you want to fetch
+def fetch_all_historical_data(base_url, api_key, start_date="2025-02-20T00:00:00.000Z", end_date="2025-09-23T04:52:31.000Z"): # Here it goes the last date you want to fetch
     """
     Fetches ALL receipts from the API, starting from a given date.
     This is intended for a one-time historical backfill.
