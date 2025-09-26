@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 import pandas as pd
 import json
+import uuid
 
 #import the predefined schema
 from schemas import DEFINED_SCHEMA
@@ -212,12 +213,12 @@ def merge_and_overwrite_monthly_data(new_df, s3_bucket):
         ordered_columns = [field.name for field in DEFINED_SCHEMA]
         final_df_to_save = final_df_to_save[ordered_columns]
 
-        # Save back to S3 WITH the enforced schema
-        logger.info(f"Uploading {len(final_df_to_save)} total records for {month_tag} to S3.")
-        final_df_to_save.to_parquet(
-            s3_path,
-            schema=DEFINED_SCHEMA, # This is the critical change
-            index=False
-        )
-
+        # Generate a unique file name to avoid overwriting anything
+        unique_filename = f"data_{uuid.uuid4()}.parquet"
+        
+        s3_path = f"s3://{s3_bucket}/curated_data/year={year}/month={month}/{unique_filename}"
+        
+        logger.info(f"Appending {len(monthly_data_to_add)} new records to {s3_path}")
+        
+        monthly_data_to_add.to_parquet(s3_path, schema=DEFINED_SCHEMA, index=False)
     logger.info("Finished merging and loading all new data to S3.")

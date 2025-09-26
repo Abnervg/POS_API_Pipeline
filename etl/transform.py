@@ -92,7 +92,7 @@ def flatten_with_pandas(receipts_data):
     # 3. SELECT AND REORDER FINAL COLUMNS
     final_columns = [
         "receipt_number", "datetime", "date", "time", "order_type",
-        "item_name", "price", "total_money", "modifiers", "payment_type"
+        "item_name", "cost", "price", "total_money", "modifiers", "payment_type"
     ]
     df_final = df.reindex(columns=final_columns)
 
