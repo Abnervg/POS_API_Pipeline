@@ -11,6 +11,9 @@ __pycache__/
 # VSCode
 .vscode/
 
+#Schema files
+schemas.py
+
 #Plots and reports
 reports/
 
