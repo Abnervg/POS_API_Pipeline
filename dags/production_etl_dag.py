@@ -9,7 +9,7 @@ from airflow.models import Variable
 from docker.types import Mount
 
 # --- Constants and Configuration ---
-DOCKER_IMAGE = "pos-etl-pipeline:latest"
+DOCKER_IMAGE = "smash_api_pipeline:latest"
 HOST_CONFIG_FOLDER_PATH = Variable.get("HOST_CONFIG_FOLDER_PATH", default_var="/path/to/config")
 HOST_AWS_CREDS_PATH = Variable.get("HOST_AWS_CREDS_PATH", default_var="/path/to/.aws")
 

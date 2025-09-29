@@ -1,17 +1,16 @@
-#Official python base image
+# 1. Start with an official Python base image
 FROM python:3.11-slim
 
-# Set the working directory
+# 2. Set the working directory inside the container
 WORKDIR /app
 
-# Copy the requirements file into the container
+# 3. Copy and install dependencies first to leverage Docker's layer caching
 COPY requirements.txt .
-
-# Install the required packages
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the entire application code into the container
+# 4. Copy your entire project into the container's working directory
 COPY . .
 
-# Define the command to run the application
-CMD ["python", "main.py", "--step", "all"]
+# 5. Define the default command to run when the container starts
+CMD ["python", "main.py", "--step", "daily_run"]
+
