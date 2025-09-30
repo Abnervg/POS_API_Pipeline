@@ -1,12 +1,14 @@
 import pandas as pd
 import logging
 import matplotlib.pyplot as plt
+import awswrangler as wr
 from pathlib import Path
 import numpy as np
 import seaborn as sns
 from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 from .utils import convert_md_to_pdf, send_report_by_email
+
 
 # Import your data preparation functions
 from .data_preparation import clean_data_for_reporting, explode_combo_items_advanced
@@ -15,38 +17,65 @@ from .data_preparation import calculate_daily_sales_metrics, calculate_sales_by_
 from .data_preparation import get_top_products, calculate_daily_sales_for_comparison
 # Requests monthly data
 
-def request_monthly_data(bucket_name):
+def request_monthly_data(year: int, month: int, database_name: str) -> pd.DataFrame:
     """
-    Loads last and current monthly data from the S3 data lake to return a 2 month data dataframe
+    Queries Athena to get a clean, deduplicated DataFrame for a specific
+    month and the month prior to it.
 
     Args:
-        s3_bucket (str): The S3 bucket where the curated data is stored.
+        year (int): The year of the primary report month.
+        month (int): The primary report month.
+        database_name (str): The name of the Athena database.
 
     Returns:
-        pd.DataFrame: A single DataFrame containing 2 months worht of data.
+        pd.DataFrame: A single DataFrame containing two months' worth of clean data.
     """
     logger = logging.getLogger(__name__)
-    # Defines current month tag
-    now = datetime.now()
-    last_month = now - relativedelta(months=1)
-    previous_month = last_month - relativedelta(months=1)
 
-    # Define the base path for your partitioned data
-    s3_paths_to_load = [f"s3://{bucket_name}/curated_data/year={last_month.year}/month={last_month.month:02d}/",
-                        f"s3://{bucket_name}/curated_data/year={previous_month.year}/month={previous_month.month:02d}/"
-                        ]
-    all_dfs = []
-    logger.info(f"Attempting to load data from S3 with path s3://{bucket_name}/curated_data/ for {last_month.year} year and {previous_month.month:02d},{last_month.month:02d} months")
-    for path in s3_paths_to_load:
-        try:
-            logger.info(f"Loading data from {path}")
-            monthly_df = pd.read_parquet(path)
-            all_dfs.append(monthly_df)
-        except FileNotFoundError:
-            logger.warning(f"No data found at the specified path: {path}. This may be expected if no previous month data")
-        except Exception as e:
-            logger.error(f"An error occurred while loading monthly data from S3: {e}")
-            raise
+    # Calculate the date ranges for the query
+    report_month = datetime(year, month, 1)
+    previous_month_date = report_month - relativedelta(months=1)
+    
+    # This SQL query will be executed by Athena
+    # It fetches two months of data and removes duplicates in one step
+    query = f"""
+        WITH latest_records AS (
+            SELECT 
+                *,
+                ROW_NUMBER() OVER(
+                    PARTITION BY receipt_number, item_name 
+                    ORDER BY shifted_time DESC
+                ) as rank_num
+            FROM 
+                sales_data_appended
+            WHERE 
+                (year = {year} AND month = {month}) OR 
+                (year = {previous_month_date.year} AND month = {previous_month_date.month})
+        )
+        SELECT 
+            -- Select all columns from your table except the helper column
+            receipt_number, datetime, order_type, item_name, cost, price, 
+            total_money, modifiers, payment_type, shifted_time, time_slot
+        FROM 
+            latest_records 
+        WHERE 
+            rank_num = 1
+    """
+
+    logger.info(f"Executing Athena query for months {previous_month_date.strftime('%Y-%m')} and {report_month.strftime('%Y-%m')}")
+    
+    try:
+        # Use awswrangler to run the query and get a pandas DataFrame
+        combined_df = wr.athena.read_sql_query(
+            sql=query,
+            database=database_name
+        )
+        logger.info(f"Successfully loaded a total of {len(combined_df)} records.")
+        return combined_df
+    except Exception as e:
+        # awswrangler can raise specific errors, e.g., if no data is found
+        logger.error(f"An Athena query error occurred: {e}")
+        return pd.DataFrame()
   
     # Combine the dataframes
     if not all_dfs:

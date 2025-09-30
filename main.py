@@ -4,6 +4,7 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 import pandas as pd
+import awswrangler as wr
 
 # Import all your custom functions at the top for clarity
 from etl.extract import (
@@ -58,6 +59,17 @@ def run_incremental_etl(config):
         # The state file is NOT updated on failure, ensuring we retry from the same point
         raise
 
+    # 6. Repair Athena table to recognize any new partitions
+
+    try:
+        logger.info("Repairing table to discover any new partitions...")
+        wr.athena.repair_table(
+            table="sales_data_appended",
+            database="your_athena_database_name"
+        )
+        logger.info("Table repair successful.")
+    except Exception as e:
+        logger.error(f"Failed to repair Athena table: {e}")
 
 # --- Orchestrators for Manual / One-Time Tasks ---
 
