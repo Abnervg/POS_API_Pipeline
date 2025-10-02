@@ -60,12 +60,14 @@ def run_incremental_etl(config):
         raise
 
     # 6. Repair Athena table to recognize any new partitions
+    session = boto3.Session(region_name='us-east-1')  # Adjust region as needed
 
     try:
         logger.info("Repairing table to discover any new partitions...")
         wr.athena.repair_table(
             table="sales_data_appended",
-            database="your_athena_database_name"
+            database="your_athena_database_name",
+            boto3_session=session
         )
         logger.info("Table repair successful.")
     except Exception as e:
