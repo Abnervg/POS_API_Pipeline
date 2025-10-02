@@ -8,6 +8,7 @@ import seaborn as sns
 from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 from .utils import convert_md_to_pdf, send_report_by_email
+import boto3
 
 
 # Import your data preparation functions
@@ -17,27 +18,36 @@ from .data_preparation import calculate_daily_sales_metrics, calculate_sales_by_
 from .data_preparation import get_top_products, calculate_daily_sales_for_comparison
 # Requests monthly data
 
-def request_monthly_data(year: int, month: int, database_name: str) -> pd.DataFrame:
+def request_monthly_data(year: int, month: int, database_name: str, table_name: str) -> pd.DataFrame:
     """
     Queries Athena to get a clean, deduplicated DataFrame for a specific
-    month and the month prior to it.
+    month and the month prior to it, correctly handling zero-padded month strings.
 
     Args:
         year (int): The year of the primary report month.
         month (int): The primary report month.
         database_name (str): The name of the Athena database.
+        table_name (str): The name of the Athena table.
 
     Returns:
-        pd.DataFrame: A single DataFrame containing two months' worth of clean data.
+        pd.DataFrame: A single DataFrame containing two months of clean data.
     """
     logger = logging.getLogger(__name__)
 
-    # Calculate the date ranges for the query
-    report_month = datetime(year, month, 1)
-    previous_month_date = report_month - relativedelta(months=1)
+    # --- KEY CHANGE ---
+    # Calculate date ranges and immediately format them into the strings
+    # that match your Athena table's format.
+    report_month_date = datetime(year, month-1, 1)
+    previous_month_date = report_month_date - relativedelta(months=1)
+
+    # Use strftime to get zero-padded month ('%m') and year ('%Y') strings
+    report_year_str = report_month_date.strftime('%Y')
+    report_month_str = report_month_date.strftime('%m') # e.g., 9 -> '09'
+    previous_year_str = previous_month_date.strftime('%Y')
+    previous_month_str = previous_month_date.strftime('%m') # e.g., 8 -> '08'
     
-    # This SQL query will be executed by Athena
-    # It fetches two months of data and removes duplicates in one step
+    # This SQL query will be executed by Athena.
+    # It now uses the pre-formatted string variables to ensure the WHERE clause is correct.
     query = f"""
         WITH latest_records AS (
             SELECT 
@@ -47,13 +57,12 @@ def request_monthly_data(year: int, month: int, database_name: str) -> pd.DataFr
                     ORDER BY shifted_time DESC
                 ) as rank_num
             FROM 
-                sales_data_appended
+                "{table_name}"
             WHERE 
-                (year = {year} AND month = {month}) OR 
-                (year = {previous_month_date.year} AND month = {previous_month_date.month})
+                (year = '{report_year_str}' AND month = '{report_month_str}') OR 
+                (year = '{previous_year_str}' AND month = '{previous_month_str}')
         )
         SELECT 
-            -- Select all columns from your table except the helper column
             receipt_number, datetime, order_type, item_name, cost, price, 
             total_money, modifiers, payment_type, shifted_time, time_slot
         FROM 
@@ -62,29 +71,25 @@ def request_monthly_data(year: int, month: int, database_name: str) -> pd.DataFr
             rank_num = 1
     """
 
-    logger.info(f"Executing Athena query for months {previous_month_date.strftime('%Y-%m')} and {report_month.strftime('%Y-%m')}")
-    
+    logger.info(f"Executing Athena query on table '{table_name}' for months {previous_year_str}-{previous_month_str} and {report_year_str}-{report_month_str}")
+
     try:
+        # Set up a boto3 session (ensure AWS credentials are configured)
+        sess = boto3.Session(region_name="us-east-1")
+        
         # Use awswrangler to run the query and get a pandas DataFrame
         combined_df = wr.athena.read_sql_query(
             sql=query,
-            database=database_name
+            database=database_name,
+            boto3_session=sess
         )
         logger.info(f"Successfully loaded a total of {len(combined_df)} records.")
         return combined_df
+
     except Exception as e:
-        # awswrangler can raise specific errors, e.g., if no data is found
         logger.error(f"An Athena query error occurred: {e}")
         return pd.DataFrame()
-  
-    # Combine the dataframes
-    if not all_dfs:
-        logger.warning("No data was found for the last two months")
-        return pd.DataFrame()
-    combined_df = pd.concat(all_dfs,ignore_index=True)
 
-    logger.info(f"Successfully loaded a total of {len(combined_df)} records from the last two months.")
-    return combined_df 
 
 # --- Plotting Functions ---
 
@@ -634,8 +639,13 @@ def generate_monthly_report(config):
     logger.info("--- Starting Monthly Report Generation ---")
 
     # --- 1. Load Data ---
-    s3_bucket = config['s3_bucket']
-    two_months_df = request_monthly_data(s3_bucket)
+    athena_database = config['athena_database']
+    athena_table = config['athena_table']
+
+    current_month = datetime.now().month
+    current_year = datetime.now().year
+
+    two_months_df = request_monthly_data(current_year, current_month, athena_database, athena_table)
 
     if two_months_df.empty:
         logger.warning("No data found for the last two months. Skipping monthly report.")
@@ -672,11 +682,11 @@ def generate_monthly_report(config):
     if report_md_path:
         logger.info("Converting report to PDF...")
         pdf_path = convert_md_to_pdf(report_md_path, report_output_dir)
-        
         if pdf_path:
             logger.info("Sending report by email...")
             # Get recipient from config for better practice
             recipient_email = config.get("recipient_email", "default.recipient@example.com")
             send_report_by_email(pdf_path, recipient_email, file_tag, frequency)
+        
 
     logger.info(f"--- Monthly Report process completed. Artifacts are in: {report_output_dir} ---")

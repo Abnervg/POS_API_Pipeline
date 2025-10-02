@@ -113,7 +113,9 @@ def main():
         "s3_bucket": os.getenv("S3_BUCKET_NAME"),
         "recipient_email": os.getenv("RECIPIENT_EMAIL"),
         "smtp_host": os.getenv("SMTP_HOST"),
-        "smtp_port": os.getenv("SMTP_PORT")
+        "smtp_port": os.getenv("SMTP_PORT"),
+        "athena_database": os.getenv("ATHENA_DATABASE"),
+        "athena_table": os.getenv("ATHENA_TABLE")
     }
     if not all(config.values()):
         raise ValueError("One or more required environment variables are not set.")

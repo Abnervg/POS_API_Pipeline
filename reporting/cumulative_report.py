@@ -9,6 +9,8 @@ import logging
 from mlxtend.frequent_patterns import apriori, association_rules
 from mlxtend.preprocessing import TransactionEncoder
 import re
+import boto3
+import awswrangler as wr
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from reporting.utils import convert_md_to_pdf, send_report_by_email
@@ -35,12 +37,12 @@ def calculate_cumulative_metrics(df):
     df.dropna(subset=['shifted_time'], inplace=True)
 
     # Calculate KPIs
-    total_revenue = df['price'].sum()
+    total_revenue = df['total_money'].sum()
     total_receipts = df['receipt_number'].nunique()
     average_receipt_value = total_revenue / total_receipts if total_receipts > 0 else 0
     first_sale_date = df['shifted_time'].min().date()
     last_sale_date = df['shifted_time'].max().date()
-    average_monthly_revenue = df.groupby(df['shifted_time'].dt.to_period('M'))['price'].sum().mean()
+    average_monthly_revenue = df.groupby(df['shifted_time'].dt.to_period('M'))['total_money'].sum().mean()
     
     kpis = {
         "Total Revenue": f"${total_revenue:,.2f}",
@@ -504,7 +506,7 @@ def plot_monthly_sales_trend(df, output_dir):
 
 # Function to load data from S3
 
-def request_data(bucket_name):
+def request_data(database_name, table_name,):
     """
     Loads all partitioned monthly data from the S3 data lake and combines it
     into a single DataFrame for cumulative analysis.
@@ -517,24 +519,29 @@ def request_data(bucket_name):
     """
     logger = logging.getLogger(__name__)
     
-    # Define the base path for your partitioned data
-    base_s3_path = f"s3://{bucket_name}/curated_data/"
-    
-    logger.info(f"Loading all historical data from S3 path: {base_s3_path}")
-    
-    try:
-        # Use pandas to read the entire partitioned dataset.
-        # It will automatically discover the 'year=' and 'month=' directories.
-        historical_df = pd.read_parquet(base_s3_path)
+    # Define boto3 session (ensure AWS credentials are configured)
+    session = boto3.Session(region_name="us-east-1")
+
+    sql_query = f"""
+        SELECT * FROM {table_name}
+        """
         
+    
+    logger.info(f"Loading all historical data")
+    
+    #Query the data using awswrangler
+    try:
+        historical_df = wr.athena.read_sql_query(
+            sql=sql_query,
+            database=database_name,
+            boto3_session=session
+        )
+
         logger.info(f"Successfully loaded a total of {len(historical_df)} historical records.")
         return historical_df
-        
-    except FileNotFoundError:
-        logger.warning(f"No data found at the specified path: {base_s3_path}. Returning an empty DataFrame.")
-        return pd.DataFrame()
     except Exception as e:
-        logger.error(f"An error occurred while loading historical data from S3: {e}")
+        logger.error(f"An error occurred while querying historical data: {e}")
+        return pd.DataFrame()  # Return an empty DataFrame on error
         raise
 
 
@@ -710,8 +717,9 @@ def generate_cumulative_report(config):
     logger.info("--- Starting Cumulative Report Generation ---")
 
     # 1. Load all historical data from S3
-    s3_bucket = config['s3_bucket']
-    all_data_df = request_data(s3_bucket)
+    database_name = config['athena_database']
+    table_name = config['athena_table']
+    all_data_df = request_data(database_name, table_name)
 
     if all_data_df.empty:
         logger.warning("No historical data found. Skipping cumulative report.")
