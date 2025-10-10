@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 import pandas as pd
 import awswrangler as wr
+import boto3
 
 # Import all your custom functions at the top for clarity
 from etl.extract import (
